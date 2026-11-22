@@ -3,7 +3,8 @@
 
 #pragma once
 
-// Minimal DETX reader (V1-V5). PMT i of a DOM is TDC channel i.
+// Minimal DETX reader (V1-V5): DOM and PMT positions, PMT t0. PMT i of a DOM is TDC channel i.
+// DU and DOM numbers come from DomMap.h.
 
 #include <cstdlib>
 #include <fstream>
@@ -20,7 +21,6 @@ namespace END {
   };
 
   struct DetxDom {
-    int du, floor;
     double x, y, z;
     std::vector<DetxPmt> pmts;
   };
@@ -61,8 +61,6 @@ namespace END {
       }
       else
         continue;
-      dom.du = std::atoi(f[1].c_str());
-      dom.floor = std::atoi(f[2].c_str());
 
       for(int p = 0; p < npmt && i < lines.size(); p++, i++){
         const std::vector<std::string>& q = lines[i];

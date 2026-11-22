@@ -17,6 +17,7 @@
 
 #include "../include/Constants.h"
 #include "../include/Detx.h"
+#include "../include/DomMap.h"
 #include "../include/L1Tree.h"
 
 using namespace END;
@@ -35,14 +36,15 @@ void EventDump(std::string muons_file, std::string pattern, std::string json, in
   // tagged muons, ranked by summed multiplicity
   TFile* fmu = TFile::Open(muons_file.c_str(), "read");
   TTree* muons = (TTree*)fmu->Get("muons");
-  int run, frame, du, nfloor, m[64];
+  int run, frame, du, ndom, dom_id[64], m[64];
   double t_top;
   Long64_t entry[64];
   muons->SetBranchAddress("run", &run);
   muons->SetBranchAddress("frame", &frame);
   muons->SetBranchAddress("du", &du);
   muons->SetBranchAddress("t_top", &t_top);
-  muons->SetBranchAddress("nfloor", &nfloor);
+  muons->SetBranchAddress("ndom", &ndom);
+  muons->SetBranchAddress("dom_id", dom_id);
   muons->SetBranchAddress("m", m);
   muons->SetBranchAddress("entry", entry);
 
@@ -51,13 +53,13 @@ void EventDump(std::string muons_file, std::string pattern, std::string json, in
   for(Long64_t i = 0; i < muons->GetEntries(); i++){
     muons->GetEntry(i);
     int sum = 0;
-    for(int f = 0; f < nfloor; f++) sum += m[f];
+    for(int f = 0; f < ndom; f++) sum += m[f];
     ranked.push_back(std::make_pair(sum, i));
     when.push_back(std::make_tuple(run, frame, t_top));
   }
   std::sort(ranked.rbegin(), ranked.rend());
 
-  // brightest, then from the median down; a muon seen on several DUs is taken once
+  // brightest, then from the median down; a muon seen on several columns is taken once
   std::vector<Long64_t> chosen;
   auto choose = [&](size_t from, size_t n){
     for(size_t i = from; i < ranked.size() && n > 0; i++){
@@ -83,8 +85,8 @@ void EventDump(std::string muons_file, std::string pattern, std::string json, in
   fprintf(out, "{\n\"doms\": [\n");
   for(size_t i = 0; i < dom_ids.size(); i++){
     const DetxDom& d = doms[dom_ids[i]];
-    fprintf(out, " {\"id\": %d, \"string\": %d, \"floor\": %d, \"pos\": [%.3f, %.3f, %.3f], \"pmts\": [",
-            dom_ids[i], d.du, d.floor, d.x, d.y, d.z);
+    fprintf(out, " {\"id\": %d, \"du\": %d, \"dom\": %d, \"pos\": [%.3f, %.3f, %.3f], \"pmts\": [",
+            dom_ids[i], DomDU(dom_ids[i]), DomNumber(dom_ids[i]), d.x, d.y, d.z);
     for(size_t p = 0; p < d.pmts.size(); p++){
       const DetxPmt& q = d.pmts[p];
       fprintf(out, "%s[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d]", p ? "," : "", q.x, q.y, q.z, q.dx, q.dy, q.dz, q.status);
@@ -111,7 +113,7 @@ void EventDump(std::string muons_file, std::string pattern, std::string json, in
 
   for(size_t e = 0; e < chosen.size(); e++){
     muons->GetEntry(chosen[e]);
-    Long64_t first = entry[nfloor - 1];
+    Long64_t first = entry[ndom - 1];
     l1.GetEntry(first);
     if(l_run != run || l_frame != frame){
       std::cerr << "Muon file doesn't match the L1 files! Exiting!" << std::endl;
@@ -123,12 +125,9 @@ void EventDump(std::string muons_file, std::string pattern, std::string json, in
       first--;
     }
 
-    // DOMs of the tagged DU, top first
-    std::vector<int> du_doms;
-    for(auto& d : doms) if(d.second.du == du) du_doms.push_back(d.first);
-    std::sort(du_doms.begin(), du_doms.end(), [&doms](int a, int b){ return doms[a].z > doms[b].z; });
-    fprintf(out, " {\"run\": %d, \"timeslice\": %d, \"string\": %d, \"doms\": [", run, frame, du);
-    for(size_t i = 0; i < du_doms.size(); i++) fprintf(out, "%s%d", i ? ", " : "", dom_index[du_doms[i]]);
+    // DOMs of the tagged column, top first
+    fprintf(out, " {\"run\": %d, \"timeslice\": %d, \"du\": %d, \"doms\": [", run, frame, du);
+    for(int f = ndom - 1; f >= 0; f--) fprintf(out, "%s%d", f < ndom - 1 ? ", " : "", dom_index[dom_id[f]]);
     fprintf(out, "], \"hits\": [");
 
     int written = 0;
@@ -144,7 +143,7 @@ void EventDump(std::string muons_file, std::string pattern, std::string json, in
       }
     }
     fprintf(out, "]}%s\n", e + 1 < chosen.size() ? "," : "");
-    std::cout << "Event " << e + 1 << " : run " << run << " timeslice " << frame << " DU " << du << ", " << written << " hits" << std::endl;
+    std::cout << "Event " << e + 1 << " : run " << run << " timeslice " << frame << " DU " << du << " DOM " << DomNumber(dom_id[ndom - 1]) << ", " << written << " hits" << std::endl;
   }
   fprintf(out, "]\n}\n");
   fclose(out);

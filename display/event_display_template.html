@@ -64,7 +64,7 @@
   <header>
     <h1>Muon event display</h1>
     <select id="event" aria-label="Event"></select>
-    <label class="win" title="t = 0 is when the muon's light reaches the top DOM of the tagged string (first hit of its L1 window)">
+    <label class="win" title="t = 0 is when the muon's light reaches the top DOM of the tagged column (first hit of its L1 window)">
       Window around estimated muon arrival
       <select id="window">
         <option value="-20,30" selected>−20 … 30 ns</option>
@@ -136,9 +136,14 @@ const toV = (x, y, z) => new THREE.Vector3(x, z, -y);
 // ---------------------------------------------------------------- data
 const doms = DATA.doms;
 const centre = doms.reduce((a, d) => [a[0] + d.pos[0] / doms.length, a[1] + d.pos[1] / doms.length], [0, 0]);
-const strings = [...new Set(doms.map(d => d.string))].sort((a, b) => a - b);
-// timeline rows: by string, floors top -> bottom
-const rowOrder = doms.map((d, i) => i).sort((a, b) => doms[a].string - doms[b].string || doms[b].floor - doms[a].floor);
+// columns: DOMs at the same x, y, ordered by DU and DOM number
+const colOf = d => `${d.pos[0].toFixed(2)},${d.pos[1].toFixed(2)}`;
+const colDoms = c => doms.filter(d => colOf(d) === c);
+const colFirst = c => Math.min(...colDoms(c).map(d => d.du * 1000 + d.dom));
+const columns = [...new Set(doms.map(colOf))].sort((a, b) => colFirst(a) - colFirst(b));
+const colLabel = c => { const n = colDoms(c).map(d => d.dom); return `DU${colDoms(c)[0].du} ${Math.min(...n)}-${Math.max(...n)}`; };
+// timeline rows: by column, top DOM first
+const rowOrder = doms.map((d, i) => i).sort((a, b) => columns.indexOf(colOf(doms[a])) - columns.indexOf(colOf(doms[b])) || doms[b].pos[2] - doms[a].pos[2]);
 const rowOf = new Map(rowOrder.map((d, r) => [d, r]));
 const domCentre = d => toV(d.pos[0] - centre[0], d.pos[1] - centre[1], d.pos[2]);
 
@@ -161,8 +166,8 @@ sun.position.set(6, 12, 8);
 scene.add(sun);
 scene.add(new THREE.GridHelper(24, 24, 0x2a3757, 0x172036));
 
-for (const s of strings) {
-  const ds = doms.filter(d => d.string === s);
+for (const c of columns) {
+  const ds = colDoms(c);
   const base = ds[0].pos;
   const top = Math.max(...ds.map(d => d.pos[2])) + 1.0;
   scene.add(new THREE.Line(
@@ -259,7 +264,7 @@ function updatePmts() {
 // ---------------------------------------------------------------- timeline
 const tl = document.getElementById("timeline");
 const tlx = tl.getContext("2d");
-const TL_LEFT = 44, TL_RIGHT = 28, TL_TOP = 6, TL_BOTTOM = 16;
+const TL_LEFT = 64, TL_RIGHT = 28, TL_TOP = 6, TL_BOTTOM = 16;
 const xOf = (time, w) => TL_LEFT + (time - RANGE[0]) / (RANGE[1] - RANGE[0]) * (w - TL_LEFT - TL_RIGHT);
 
 function drawTimeline() {
@@ -271,15 +276,15 @@ function drawTimeline() {
   const rh = (h - TL_TOP - TL_BOTTOM) / rowOrder.length;
 
   tlx.font = "10px system-ui, sans-serif"; tlx.textBaseline = "middle";
-  // one label per string, separators between strings, highlight of the tagged DOMs
+  // one label per column, separators between columns, highlight of the tagged DOMs
   rowOrder.forEach((d, r) => {
     const y = TL_TOP + r * rh;
     if (ev && tagged.has(d)) { tlx.fillStyle = "rgba(124,196,255,.12)"; tlx.fillRect(TL_LEFT, y, w - TL_LEFT - TL_RIGHT, rh); }
-    const firstOfString = r === 0 || doms[d].string !== doms[rowOrder[r - 1]].string;
-    if (firstOfString) {
+    const firstOfColumn = r === 0 || colOf(doms[d]) !== colOf(doms[rowOrder[r - 1]]);
+    if (firstOfColumn) {
       if (r > 0) { tlx.strokeStyle = "#243049"; tlx.beginPath(); tlx.moveTo(TL_LEFT, y); tlx.lineTo(w - TL_RIGHT, y); tlx.stroke(); }
-      tlx.fillStyle = ev && doms[d].string === ev.string ? "#7cc4ff" : "#8e98ae";
-      tlx.fillText(`S${doms[d].string}`, 12, y + rh * 1.5);
+      tlx.fillStyle = ev && colOf(doms[d]) === colOf(doms[ev.doms[0]]) ? "#7cc4ff" : "#8e98ae";
+      tlx.fillText(colLabel(colOf(doms[d])), 4, y + rh * 1.5);
     }
   });
 

@@ -1,12 +1,14 @@
-// Tags down-going muons along each DU: the top and bottom DOM both have an L1 window with
-// m >= tag_m, and the bottom one starts dz/c +- half_width_ns after the top one. For each tag,
-// the best window (largest m) on every floor near the expected time is stored in tree "muons".
+// Tags down-going muons along each column of DOMs (DOMs with the same x, y in the detx):
+// the top and bottom DOM both have an L1 window with m >= tag_m, and the bottom one starts
+// dz/c +- half_width_ns after the top one. For each tag, the best window (largest m) on every
+// DOM of the column near the expected time is stored in tree "muons".
 // The middle DOMs take no part in the selection, so their multiplicity is an unbiased muon sample.
 
 #include <algorithm>
 #include <iostream>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "TChain.h"
@@ -19,6 +21,7 @@
 
 #include "../include/Constants.h"
 #include "../include/Detx.h"
+#include "../include/DomMap.h"
 #include "../include/L1Tree.h"
 #include "../include/plotting/MuonPlots.h"
 
@@ -30,7 +33,7 @@ struct L1Window {
   Long64_t entry;
 };
 
-const int kMaxFloors = 64;
+const int kMaxColumn = 64; // max DOMs in a column
 
 // Best window (largest m, at least min_m) starting within half_width of t; -1 if none.
 int BestWindow(const std::vector<L1Window>& w, double t, double half_width, int min_m)
@@ -55,13 +58,18 @@ void MuonTag(std::string pattern, std::string out_dir = ".", int tag_m = 4, doub
   }
   const double time_cut_ns = time_cut_ms * 1e6;
 
-  // floors of each DU, lowest first
-  std::map<int, std::vector<int>> du_doms;
-  for(auto& d : doms) du_doms[d.second.du].push_back(d.first);
-  for(auto& du : du_doms)
-    std::sort(du.second.begin(), du.second.end(), [&doms](int a, int b){ return doms[a].z < doms[b].z; });
+  // columns: DOMs at the same x, y (to 1 cm), lowest first
+  std::map<std::pair<long, long>, std::vector<int>> by_position;
+  for(auto& d : doms) by_position[std::make_pair(std::lround(d.second.x * 100), std::lround(d.second.y * 100))].push_back(d.first);
+  std::vector<std::vector<int>> columns;
+  for(auto& c : by_position){
+    std::sort(c.second.begin(), c.second.end(), [&doms](int a, int b){ return doms[a].z < doms[b].z; });
+    if(c.second.size() >= 2) columns.push_back(c.second);
+  }
+  std::map<int, int> top_of; // top DOM id -> column
+  for(size_t c = 0; c < columns.size(); c++) top_of[columns[c].back()] = c;
 
-  // livetime of each DU's top DOM
+  // livetime of each column's top DOM
   TChain frames("frames");
   frames.Add(pattern.c_str());
   int f_dom_id;
@@ -71,8 +79,8 @@ void MuonTag(std::string pattern, std::string out_dir = ".", int tag_m = 4, doub
   std::map<int, double> livetime_s;
   for(Long64_t i = 0; i < frames.GetEntries(); i++){
     frames.GetEntry(i);
-    if(!doms.count(f_dom_id) || du_doms[doms[f_dom_id].du].back() != f_dom_id) continue;
-    livetime_s[doms[f_dom_id].du] += 1e-9 * (time_cut_ns > 0 ? std::min(time_cut_ns, frame_ns) : frame_ns);
+    if(!top_of.count(f_dom_id)) continue;
+    livetime_s[top_of[f_dom_id]] += 1e-9 * (time_cut_ns > 0 ? std::min(time_cut_ns, frame_ns) : frame_ns);
   }
 
   // input
@@ -93,23 +101,24 @@ void MuonTag(std::string pattern, std::string out_dir = ".", int tag_m = 4, doub
   // output
   gSystem->mkdir(out_dir.c_str(), true);
   TFile fout((out_dir + "/muons.root").c_str(), "RECREATE");
-  int o_run, o_frame, o_du, nfloor, o_dom[kMaxFloors], o_m[kMaxFloors];
+  int o_run, o_frame, o_du, ndom, o_dom_id[kMaxColumn], o_dom[kMaxColumn], o_m[kMaxColumn];
   unsigned int o_utc_s;
-  double t_top, o_dt[kMaxFloors];
-  Long64_t o_entry[kMaxFloors];
-  TTree* muons = new TTree("muons", "tagged muons, floor arrays lowest first");
+  double t_top, o_dt[kMaxColumn];
+  Long64_t o_entry[kMaxColumn];
+  TTree* muons = new TTree("muons", "tagged muons, DOM arrays lowest first");
   muons->Branch("run", &o_run, "run/I");
   muons->Branch("frame", &o_frame, "frame/I");
   muons->Branch("utc_s", &o_utc_s, "utc_s/i");
   muons->Branch("du", &o_du, "du/I");
   muons->Branch("t_top", &t_top, "t_top/D");
-  muons->Branch("nfloor", &nfloor, "nfloor/I");
-  muons->Branch("dom", o_dom, "dom[nfloor]/I");
-  muons->Branch("m", o_m, "m[nfloor]/I");
-  muons->Branch("dt", o_dt, "dt[nfloor]/D");
-  muons->Branch("entry", o_entry, "entry[nfloor]/L");
+  muons->Branch("ndom", &ndom, "ndom/I");
+  muons->Branch("dom_id", o_dom_id, "dom_id[ndom]/I");
+  muons->Branch("dom", o_dom, "dom[ndom]/I");
+  muons->Branch("m", o_m, "m[ndom]/I");
+  muons->Branch("dt", o_dt, "dt[ndom]/D");
+  muons->Branch("entry", o_entry, "entry[ndom]/L");
 
-  const double dz = doms[du_doms.begin()->second.back()].z - doms[du_doms.begin()->second.front()].z;
+  const double dz = doms[columns[0].back()].z - doms[columns[0].front()].z;
   const double expected_tb = dz / kLightSpeed;
   TH1D h_dt("dt_top_bottom", Form(";t_{bottom} - t_{top} [ns] (both m #geq %d);window pairs / 10 ns", tag_m), 100, -500, 500);
   TH1D h_probe("probe_multiplicity", ";middle DOM multiplicity (0 = no L1 window);tags", kNPMT + 1, -0.5, kNPMT + 0.5);
@@ -119,28 +128,29 @@ void MuonTag(std::string pattern, std::string out_dir = ".", int tag_m = 4, doub
   // process one timeslice at a time
   std::map<int, std::vector<L1Window>> windows; // dom_id -> windows in time order
   auto processFrame = [&](int this_run, int this_frame, unsigned int this_utc_s){
-    for(auto& du : du_doms){
-      const std::vector<int>& floors = du.second;
-      const double z_top = doms[floors.back()].z;
-      const std::vector<L1Window>& top = windows[floors.back()];
-      const std::vector<L1Window>& bottom = windows[floors.front()];
+    for(const std::vector<int>& column : columns){
+      const double z_top = doms[column.back()].z;
+      const std::vector<L1Window>& top = windows[column.back()];
+      const std::vector<L1Window>& bottom = windows[column.front()];
 
       for(const L1Window& w : top){
         if(w.m < tag_m || (time_cut_ns > 0 && w.t0 >= time_cut_ns)) continue;
         for(const L1Window& b : bottom)
           if(b.m >= tag_m && std::abs(b.t0 - w.t0) < 500) h_dt.Fill(b.t0 - w.t0);
-        if(BestWindow(bottom, w.t0 + (z_top - doms[floors.front()].z) / kLightSpeed, half_width_ns, tag_m) < 0) continue;
+        if(BestWindow(bottom, w.t0 + (z_top - doms[column.front()].z) / kLightSpeed, half_width_ns, tag_m) < 0) continue;
 
-        o_run = this_run; o_frame = this_frame; o_utc_s = this_utc_s; o_du = du.first; t_top = w.t0;
-        nfloor = std::min((int)floors.size(), kMaxFloors);
-        for(int f = 0; f < nfloor; f++){
-          const double expected = w.t0 + (z_top - doms[floors[f]].z) / kLightSpeed;
-          const int k = BestWindow(windows[floors[f]], expected, half_width_ns, 1);
-          o_dom[f] = doms[floors[f]].floor;
-          o_m[f] = (k < 0) ? 0 : windows[floors[f]][k].m;
-          o_dt[f] = (k < 0) ? 0 : windows[floors[f]][k].t0 - expected;
-          o_entry[f] = (k < 0) ? -1 : windows[floors[f]][k].entry;
-          if(f > 0 && f < nfloor - 1) h_probe.Fill(o_m[f]);
+        o_run = this_run; o_frame = this_frame; o_utc_s = this_utc_s; o_du = DomDU(column.back()); t_top = w.t0;
+        ndom = std::min((int)column.size(), kMaxColumn);
+        for(int f = 0; f < ndom; f++){
+          const std::vector<L1Window>& wf = windows[column[f]];
+          const double expected = w.t0 + (z_top - doms[column[f]].z) / kLightSpeed;
+          const int k = BestWindow(wf, expected, half_width_ns, 1);
+          o_dom_id[f] = column[f];
+          o_dom[f] = DomNumber(column[f]);
+          o_m[f] = (k < 0) ? 0 : wf[k].m;
+          o_dt[f] = (k < 0) ? 0 : wf[k].t0 - expected;
+          o_entry[f] = (k < 0) ? -1 : wf[k].entry;
+          if(f > 0 && f < ndom - 1) h_probe.Fill(o_m[f]);
         }
         muons->Fill();
       }
@@ -164,14 +174,14 @@ void MuonTag(std::string pattern, std::string out_dir = ".", int tag_m = 4, doub
   // summary
   double total_livetime = 0;
   for(auto& l : livetime_s) total_livetime += l.second;
-  std::cout << "Tags : " << muons->GetEntries() << ", " << muons->GetEntries() / total_livetime << " Hz per DU" << std::endl;
+  std::cout << "Tags : " << muons->GetEntries() << ", " << muons->GetEntries() / total_livetime << " Hz per column" << std::endl;
 
   DrawTopBottomDt(h_dt, expected_tb, half_width_ns, out_dir + "/dt_top_bottom.png");
   DrawProbeMultiplicity(h_probe, out_dir + "/probe_multiplicity.png");
 
   h_dt.Write();
   h_probe.Write();
-  TParameter<double>("livetime_per_du_s", total_livetime / livetime_s.size()).Write();
+  TParameter<double>("livetime_per_column_s", total_livetime / livetime_s.size()).Write();
   TParameter<int>("tag_m", tag_m).Write();
   TParameter<double>("half_width_ns", half_width_ns).Write();
   TNamed("l1_pattern", pattern.c_str()).Write();
