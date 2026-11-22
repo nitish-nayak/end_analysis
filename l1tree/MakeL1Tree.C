@@ -22,6 +22,7 @@
 
 #include "../include/Constants.h"
 #include "../include/Detx.h"
+#include "../include/DomMap.h"
 
 R__LOAD_LIBRARY(libKM3NeTROOT.so)
 
@@ -126,8 +127,8 @@ void MakeL1Tree(std::string input, std::string output, std::string detx = "",
 
       auto it = doms.find(dom_id);
       const DetxDom* detx_dom = (it != doms.end()) ? &it->second : nullptr;
-      du = detx_dom ? detx_dom->du : -1;
-      dom = detx_dom ? detx_dom->floor : -1;
+      du = DomDU(dom_id);
+      dom = DomNumber(dom_id);
 
       // DAQ status
       hrv = fifo = 0;

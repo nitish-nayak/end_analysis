@@ -12,6 +12,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "TF1.h"
@@ -25,7 +26,7 @@
 #include "km3net-dataformat/online/JDAQSuperFrame.hh"
 
 #include "../include/Constants.h"
-#include "../include/Detx.h"
+#include "../include/DomMap.h"
 
 R__LOAD_LIBRARY(libKM3NeTROOT.so)
 
@@ -55,11 +56,9 @@ struct PmtHists {
   TH1D *rate_vs_time, *frames_vs_time, *rate, *hit_time, *tot, *totcut;
 };
 
-void L0Monitor(std::string input, std::string output, std::string detx = "", Long64_t max_slices = -1)
+void L0Monitor(std::string input, std::string output, Long64_t max_slices = -1)
 {
   gSystem->Load("libtriggerROOT"); // optional, silences warnings about trigger classes in the input
-
-  std::map<int, DetxDom> doms = detx.empty() ? std::map<int, DetxDom>() : ReadDetx(detx);
 
   TFile* fin = TFile::Open(input.c_str(), "read");
   TTree* l0 = fin ? (TTree*)fin->Get("KM3NET_TIMESLICE_L0") : nullptr;
@@ -89,7 +88,7 @@ void L0Monitor(std::string input, std::string output, std::string detx = "", Lon
   auto book = [&](int dom_id){
     std::vector<PmtHists> v(kNPMT);
     for(int ch = 0; ch < kNPMT; ch++){
-      const char* t = Form("%d ch %d", dom_id, ch);
+      const char* t = Form("DU%d DOM%d (%d) ch %d", DomDU(dom_id), DomNumber(dom_id), dom_id, ch);
       v[ch].rate_vs_time = new TH1D(Form("rate_vs_time_%d", ch), Form("%s;seconds since UTC %.0f;rate [kHz]", t, t_first), ntime, 0, duration);
       v[ch].frames_vs_time = new TH1D(Form("frames_vs_time_%d", ch), "", ntime, 0, duration);
       v[ch].rate = new TH1D(Form("rate_%d", ch), Form("%s;rate in one frame [kHz];frames", t), 200, &rate_edges[0]);
@@ -132,9 +131,16 @@ void L0Monitor(std::string input, std::string output, std::string detx = "", Lon
   }
 
   TFile fout(output.c_str(), "RECREATE");
-  for(auto& d : hists){
-    auto it = doms.find(d.first);
-    const std::string name = (it != doms.end()) ? Form("DU%d_DOM%d", it->second.du, it->second.floor) : Form("DOM_%d", d.first);
+  // DOM directories in DU / DOM order
+  std::vector<int> order;
+  for(auto& d : hists) order.push_back(d.first);
+  std::sort(order.begin(), order.end(), [](int a, int b){
+    return std::make_tuple(DomDU(a), DomNumber(a), a) < std::make_tuple(DomDU(b), DomNumber(b), b);
+  });
+
+  for(int id : order){
+    auto& d = *hists.find(id);
+    const std::string name = (DomDU(d.first) > 0) ? Form("DU%d_DOM%d", DomDU(d.first), DomNumber(d.first)) : Form("DOM_%d", d.first);
     fout.mkdir(name.c_str(), Form("DOM %d", d.first))->cd();
     TH1D tot_mean("tot_mean", Form("%s;PMT channel;fitted ToT peak [ns]", name.c_str()), kNPMT, -0.5, kNPMT - 0.5);
     TH1D totcut_mean("totcut_mean", Form("%s (frames without dropped packets);PMT channel;fitted ToT peak [ns]", name.c_str()),

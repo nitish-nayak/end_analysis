@@ -1,7 +1,7 @@
 # diagnostics
 
 ```
-root -l -b -q 'diagnostics/L0Monitor.C+("run.root", "run_monitor.root", "detector.detx")'
+root -l -b -q 'diagnostics/L0Monitor.C+("run.root", "run_monitor.root")'
 root -l -b -q 'diagnostics/DroppedPackets.C+("l1/*.root", "plots")'
 ```
 

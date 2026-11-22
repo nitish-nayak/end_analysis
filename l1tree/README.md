@@ -19,7 +19,7 @@ The output has two trees.
 |---|---|
 | `run`, `frame` | run number, timeslice index |
 | `utc_s`, `utc_ns` | timeslice start |
-| `dom_id`, `du`, `dom` | DOM; `du` and `dom` are -1 without a detx |
+| `dom_id`, `du`, `dom` | DOM; `du` and `dom` from `include/DomMap.h` (-1 if not listed) |
 | `t0` | time of the first hit, ns from the timeslice start |
 | `m`, `nhit` | multiplicity, number of hits |
 | `pmt_mask` | bit `ch` set if PMT channel `ch` has a hit |
