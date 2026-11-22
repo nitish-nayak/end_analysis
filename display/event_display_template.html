@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muon Event Display</title>
+<style>
+  :root {
+    --bg: #0a0e16;
+    --panel: #111827;
+    --panel-2: #172036;
+    --line: #243049;
+    --text: #e7ebf3;
+    --muted: #8e98ae;
+    --accent: #7cc4ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  .app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .win { margin-left: auto; color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  #view { position: relative; min-height: 0; overflow: hidden; }
+  #view canvas { display: block; }
+  .bar { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 10px; align-items: center;
+    background: rgba(17, 24, 39, .8); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; backdrop-filter: blur(6px); }
+  button, select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 7px;
+    padding: 5px 10px; font: inherit; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #06121f; border-color: var(--accent); font-weight: 600; min-width: 64px; }
+  input[type=range] { accent-color: var(--accent); flex: 1; min-width: 80px; }
+  .clock { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 84px; color: var(--accent); }
+  .legend-box { flex: none; width: 150px; display: grid; gap: 2px; }
+  .legend-title { font-size: 11px; color: var(--muted); }
+  .legend { height: 8px; border-radius: 4px; }
+  .legend-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #timeline { display: block; width: 100%; height: 120px; background: var(--panel); border-top: 1px solid var(--line); cursor: crosshair; }
+  .app[hidden] { display: none; }
+  .login { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; }
+  .login form { width: min(340px, 100%); display: grid; gap: 12px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 24px; }
+  .login h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+  .login label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  .login input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 7px;
+    padding: 8px 10px; font: inherit; }
+  .login input:focus { outline: none; border-color: var(--accent); }
+  .login button { padding: 8px 10px; }
+  .login .error { color: #f87171; font-size: 13px; min-height: 1.2em; margin: 0; }
+  @media (max-width: 600px) { .legend-box { display: none; } #speed { display: none; } header { flex-wrap: wrap; } .win { margin-left: 0; } }
+</style>
+</head>
+<body>
+<div class="login" id="login" hidden>
+  <form id="login-form" autocomplete="on">
+    <h1>Muon event display</h1>
+    <label>Username <input id="user" name="username" autocomplete="username" required></label>
+    <label>Password <input id="pass" name="password" type="password" autocomplete="current-password" required></label>
+    <button class="primary" type="submit" id="login-button">Sign in</button>
+    <p class="error" id="login-error" role="alert"></p>
+  </form>
+</div>
+<div class="app" id="app" hidden>
+  <header>
+    <h1>Muon event display</h1>
+    <select id="event" aria-label="Event"></select>
+    <label class="win" title="t = 0 is when the muon's light reaches the top DOM of the tagged string (first hit of its L1 window)">
+      Window around estimated muon arrival
+      <select id="window">
+        <option value="-20,30" selected>−20 … 30 ns</option>
+        <option value="-40,100">−40 … 100 ns</option>
+        <option value="-100,250">−100 … 250 ns</option>
+      </select>
+    </label>
+  </header>
+
+  <div id="view">
+    <div class="bar">
+      <button class="primary" id="play">Pause</button>
+      <button id="restart" aria-label="Restart">↺</button>
+      <span class="clock" id="clock">t = 0.0 ns</span>
+      <input type="range" id="time-slider" min="0" max="1000" value="0" aria-label="Time">
+      <select id="speed" aria-label="Playback speed">
+        <option value="5" selected>5 ns/s</option>
+        <option value="10">10 ns/s</option>
+        <option value="20">20 ns/s</option>
+      </select>
+      <select id="colour-by" aria-label="Colour by">
+        <option value="time" selected>Colour: hit time</option>
+        <option value="tot">Colour: ToT (charge)</option>
+      </select>
+      <div class="legend-box">
+        <span class="legend-title" id="legend-title"></span>
+        <div class="legend" id="legend"></div>
+        <div class="legend-scale" id="legend-scale"></div>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="timeline"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+function main(DATA) {
+
+// ---------------------------------------------------------------- constants
+const NPMT = 31;
+const DOM_RADIUS = 0.216;          // m, 17-inch sphere
+const PMT_RADIUS = 0.040;          // m, ~3-inch photocathode
+const DOM_SCALE = 3;               // DOMs drawn larger than life so the PMTs are visible
+const FLASH_NS = 6;                // decay of a flash, in event time
+const AFTERGLOW = 0.22;
+const T_COLOUR = [-10, 40];        // colour scale for hit time (ns)
+const TOT_COLOUR = [10, 120];      // colour scale for time over threshold (ns)
+let RANGE = [-20, 30];            // playback range (ns), set by the window drop-down
+const STOPS = ["#38bdf8", "#34d399", "#a3e635", "#facc15", "#fb923c", "#f43f5e"];
+
+// ---------------------------------------------------------------- helpers
+const hexToRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+const STOP_RGB = STOPS.map(hexToRgb);
+function scaleColour(v, range) {
+  const u = Math.min(1, Math.max(0, (v - range[0]) / (range[1] - range[0]))) * (STOP_RGB.length - 1);
+  const i = Math.min(STOP_RGB.length - 2, Math.floor(u)), f = u - i;
+  return STOP_RGB[i].map((c, k) => c + (STOP_RGB[i + 1][k] - c) * f);
+}
+const timeColour = t => scaleColour(t, T_COLOUR);
+let colourBy = "time";
+const hitColour = (time, tot) => colourBy === "time" ? scaleColour(time, T_COLOUR) : scaleColour(tot, TOT_COLOUR);
+const rgbCss = c => `rgb(${c.map(v => Math.round(v * 255)).join(",")})`;
+
+// detector (x, y, z with z up) -> three.js (x, z, -y)
+const toV = (x, y, z) => new THREE.Vector3(x, z, -y);
+
+// ---------------------------------------------------------------- data
+const doms = DATA.doms;
+const centre = doms.reduce((a, d) => [a[0] + d.pos[0] / doms.length, a[1] + d.pos[1] / doms.length], [0, 0]);
+const strings = [...new Set(doms.map(d => d.string))].sort((a, b) => a - b);
+// timeline rows: by string, floors top -> bottom
+const rowOrder = doms.map((d, i) => i).sort((a, b) => doms[a].string - doms[b].string || doms[b].floor - doms[a].floor);
+const rowOf = new Map(rowOrder.map((d, r) => [d, r]));
+const domCentre = d => toV(d.pos[0] - centre[0], d.pos[1] - centre[1], d.pos[2]);
+
+// ---------------------------------------------------------------- scene
+const view = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+renderer.setClearColor(0x0a0e16);
+view.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0a0e16, 20, 48);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 200);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0x8899bb, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+sun.position.set(6, 12, 8);
+scene.add(sun);
+scene.add(new THREE.GridHelper(24, 24, 0x2a3757, 0x172036));
+
+for (const s of strings) {
+  const ds = doms.filter(d => d.string === s);
+  const base = ds[0].pos;
+  const top = Math.max(...ds.map(d => d.pos[2])) + 1.0;
+  scene.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([toV(base[0] - centre[0], base[1] - centre[1], 0), toV(base[0] - centre[0], base[1] - centre[1], top)]),
+    new THREE.LineBasicMaterial({ color: 0x3b4a6b })));
+}
+
+function glowTexture() {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(0.25, "rgba(255,255,255,.55)"); r.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+const GLOW = glowTexture();
+
+const domObjs = doms.map(d => {
+  const c = domCentre(d);
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(DOM_RADIUS * DOM_SCALE, 40, 28),
+    new THREE.MeshPhongMaterial({ color: 0x9fb4d9, transparent: true, opacity: 0.13, shininess: 90, depthWrite: false }));
+  const core = new THREE.Mesh(new THREE.SphereGeometry(DOM_RADIUS * DOM_SCALE * 0.82, 28, 20),
+    new THREE.MeshPhongMaterial({ color: 0x1a2236, shininess: 10 }));
+  glass.position.copy(c); core.position.copy(c);
+  scene.add(glass); scene.add(core);
+  const pmts = d.pmts.map(p => {
+    const dir = toV(p[3], p[4], p[5]).normalize();
+    const off = toV(p[0] - d.pos[0], p[1] - d.pos[1], p[2] - d.pos[2]);
+    const pos = c.clone().add((off.lengthSq() > 0 ? off.normalize() : dir.clone()).multiplyScalar(DOM_RADIUS * DOM_SCALE * 0.86));
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(PMT_RADIUS * DOM_SCALE, 24),
+      new THREE.MeshBasicMaterial({ color: 0x2b3550, side: THREE.DoubleSide }));
+    disc.position.copy(pos);
+    disc.lookAt(pos.clone().add(dir));
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW, color: 0xffffff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.position.copy(pos.clone().add(dir.multiplyScalar(0.02 * DOM_SCALE)));
+    glow.scale.setScalar(0.42 * DOM_SCALE);
+    scene.add(disc); scene.add(glow);
+    return { disc, glow };
+  });
+  return { glass, pmts };
+});
+
+// ---------------------------------------------------------------- event state
+let ev = null, hitsByPmt = new Map(), tagged = new Set();
+let t = RANGE[0], playing = true, speed = 5;
+const playBtn = document.getElementById("play");
+
+function setPlaying(p) { playing = p; playBtn.textContent = p ? "Pause" : "Play"; }
+
+function selectEvent(k) {
+  ev = DATA.events[k];
+  hitsByPmt = new Map();
+  for (const [d, ch, ht, tot] of ev.hits) {
+    const key = d * NPMT + ch;
+    if (!hitsByPmt.has(key)) hitsByPmt.set(key, []);
+    hitsByPmt.get(key).push([ht, tot]);
+  }
+  for (const a of hitsByPmt.values()) a.sort((x, y) => x[0] - y[0]);
+  tagged = new Set(ev.doms);
+  domObjs.forEach((o, i) => o.glass.material.color.set(tagged.has(i) ? 0xa8d4ff : 0x9fb4d9));
+  const target = domCentre(doms[ev.doms[1]]);
+  controls.target.copy(target);
+  camera.position.copy(target.clone().add(new THREE.Vector3(10.5, 3.5, 12.5)));
+  document.getElementById("event").value = k;
+  t = RANGE[0];
+  setPlaying(true);
+}
+
+const BASE = [0.17, 0.21, 0.31];
+function updatePmts() {
+  domObjs.forEach((o, i) => o.pmts.forEach((p, ch) => {
+    const hits = hitsByPmt.get(i * NPMT + ch);
+    let level = 0, last = null;
+    if (hits) {
+      for (const h of hits) {
+        if (h[0] > t) break;
+        last = h;
+        level = Math.max(level, Math.exp(-(t - h[0]) / FLASH_NS));
+      }
+    }
+    if (last === null) {
+      p.disc.material.color.setRGB(...BASE);
+      p.glow.material.opacity = 0;
+      return;
+    }
+    level = Math.max(level, AFTERGLOW);
+    const c = hitColour(last[0], last[1]), m = Math.min(1, level * 1.6);
+    p.disc.material.color.setRGB(BASE[0] + (c[0] - BASE[0]) * m, BASE[1] + (c[1] - BASE[1]) * m, BASE[2] + (c[2] - BASE[2]) * m);
+    p.glow.material.color.setRGB(...c);
+    p.glow.material.opacity = Math.max(0, level - AFTERGLOW * 0.5) * 1.1;
+  }));
+}
+
+// ---------------------------------------------------------------- timeline
+const tl = document.getElementById("timeline");
+const tlx = tl.getContext("2d");
+const TL_LEFT = 44, TL_RIGHT = 28, TL_TOP = 6, TL_BOTTOM = 16;
+const xOf = (time, w) => TL_LEFT + (time - RANGE[0]) / (RANGE[1] - RANGE[0]) * (w - TL_LEFT - TL_RIGHT);
+
+function drawTimeline() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = tl.clientWidth, h = tl.clientHeight;
+  if (tl.width !== Math.round(w * dpr) || tl.height !== Math.round(h * dpr)) { tl.width = Math.round(w * dpr); tl.height = Math.round(h * dpr); }
+  tlx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  tlx.clearRect(0, 0, w, h);
+  const rh = (h - TL_TOP - TL_BOTTOM) / rowOrder.length;
+
+  tlx.font = "10px system-ui, sans-serif"; tlx.textBaseline = "middle";
+  // one label per string, separators between strings, highlight of the tagged DOMs
+  rowOrder.forEach((d, r) => {
+    const y = TL_TOP + r * rh;
+    if (ev && tagged.has(d)) { tlx.fillStyle = "rgba(124,196,255,.12)"; tlx.fillRect(TL_LEFT, y, w - TL_LEFT - TL_RIGHT, rh); }
+    const firstOfString = r === 0 || doms[d].string !== doms[rowOrder[r - 1]].string;
+    if (firstOfString) {
+      if (r > 0) { tlx.strokeStyle = "#243049"; tlx.beginPath(); tlx.moveTo(TL_LEFT, y); tlx.lineTo(w - TL_RIGHT, y); tlx.stroke(); }
+      tlx.fillStyle = ev && doms[d].string === ev.string ? "#7cc4ff" : "#8e98ae";
+      tlx.fillText(`S${doms[d].string}`, 12, y + rh * 1.5);
+    }
+  });
+
+  tlx.fillStyle = "#8e98ae"; tlx.textAlign = "center"; tlx.strokeStyle = "#1c2640";
+  const step = RANGE[1] - RANGE[0] > 200 ? 50 : (RANGE[1] - RANGE[0] > 100 ? 20 : 10);
+  for (let tt = Math.ceil(RANGE[0] / step) * step; tt <= RANGE[1]; tt += step) {
+    const x = xOf(tt, w);
+    tlx.beginPath(); tlx.moveTo(x, TL_TOP); tlx.lineTo(x, h - TL_BOTTOM); tlx.stroke();
+    tlx.fillText(`${tt} ns`, x, h - TL_BOTTOM + 8);
+  }
+  tlx.textAlign = "left";
+  if (!ev) return;
+
+  for (const [d, ch, ht, tot] of ev.hits) {
+    if (ht < RANGE[0] || ht > RANGE[1]) continue;
+    tlx.globalAlpha = ht <= t ? 1 : 0.25;
+    tlx.fillStyle = rgbCss(hitColour(ht, tot));
+    tlx.beginPath(); tlx.arc(xOf(ht, w), TL_TOP + rowOf.get(d) * rh + rh / 2, 1.8, 0, Math.PI * 2); tlx.fill();
+  }
+  tlx.globalAlpha = 1;
+
+  const xc = xOf(t, w);
+  tlx.strokeStyle = "#ffffff"; tlx.lineWidth = 1.5;
+  tlx.beginPath(); tlx.moveTo(xc, TL_TOP); tlx.lineTo(xc, h - TL_BOTTOM); tlx.stroke(); tlx.lineWidth = 1;
+}
+
+tl.addEventListener("click", e => {
+  const rect = tl.getBoundingClientRect();
+  t = Math.min(RANGE[1], Math.max(RANGE[0], RANGE[0] + (e.clientX - rect.left - TL_LEFT) / (rect.width - TL_LEFT - TL_RIGHT) * (RANGE[1] - RANGE[0])));
+  setPlaying(false);
+});
+
+// ---------------------------------------------------------------- controls
+const picker = document.getElementById("event");
+DATA.events.forEach((e, k) => picker.add(new Option(`Event ${k + 1}`, k)));
+picker.addEventListener("change", () => selectEvent(+picker.value));
+document.getElementById("window").addEventListener("change", e => {
+  RANGE = e.target.value.split(",").map(Number);
+  t = Math.min(RANGE[1], Math.max(RANGE[0], t));
+});
+
+document.getElementById("legend").style.background = `linear-gradient(90deg, ${STOPS.join(",")})`;
+function updateLegend() {
+  const r = colourBy === "time" ? T_COLOUR : TOT_COLOUR;
+  document.getElementById("legend-title").textContent = colourBy === "time" ? "Hit time (ns)" : "Time over threshold (ns)";
+  document.getElementById("legend-scale").innerHTML =
+    [r[0], (r[0] + r[1]) / 2, r[1]].map((v, i) => `<span>${v}${i === 2 && colourBy === "tot" ? "+" : ""}</span>`).join("");
+}
+document.getElementById("colour-by").addEventListener("change", e => { colourBy = e.target.value; updateLegend(); });
+updateLegend();
+playBtn.addEventListener("click", () => { if (!playing && t >= RANGE[1]) t = RANGE[0]; setPlaying(!playing); });
+document.getElementById("restart").addEventListener("click", () => { t = RANGE[0]; setPlaying(true); });
+document.getElementById("speed").addEventListener("change", e => speed = +e.target.value);
+const slider = document.getElementById("time-slider");
+slider.addEventListener("input", () => { t = RANGE[0] + slider.value / 1000 * (RANGE[1] - RANGE[0]); setPlaying(false); });
+
+// ---------------------------------------------------------------- loop
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h, false);
+  renderer.domElement.style.width = w + "px"; renderer.domElement.style.height = h + "px";
+  camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view);
+
+let lastFrame = performance.now(), holdUntil = 0;
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+  if (playing && now > holdUntil) {
+    t += speed * dt;
+    if (t > RANGE[1]) { t = RANGE[0]; holdUntil = now + 800; }
+  }
+  document.getElementById("clock").textContent = `t = ${t.toFixed(1)} ns`;
+  slider.value = Math.round((t - RANGE[0]) / (RANGE[1] - RANGE[0]) * 1000);
+  updatePmts();
+  drawTimeline();
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+// optional start state from the address, e.g. #event=2&t=12&pause&colour=tot
+const hash = new URLSearchParams(location.hash.slice(1));
+const startEvent = parseInt(hash.get("event"), 10);
+resize();
+selectEvent(Number.isFinite(startEvent) ? Math.min(DATA.events.length, Math.max(1, startEvent)) - 1 : 0);
+const startTime = parseFloat(hash.get("t"));
+if (Number.isFinite(startTime)) t = startTime;
+if (hash.has("pause")) setPlaying(false);
+if (hash.get("colour") === "tot") { colourBy = "tot"; document.getElementById("colour-by").value = "tot"; updateLegend(); }
+requestAnimationFrame(frame);
+}
+</script>
+<script>
+// Event data: either plain ({plain: ...}) or encrypted with a key derived from username and password
+// (PBKDF2-SHA256 -> AES-256-CBC + HMAC-SHA256 over iv|ciphertext). The password is not stored in the page.
+const PAYLOAD = /*__PAYLOAD__*/null;
+
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function unlock(user, pass) {
+  const enc = new TextEncoder();
+  const base = await crypto.subtle.importKey("raw", enc.encode(user + "\n" + pass), "PBKDF2", false, ["deriveBits"]);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: b64(PAYLOAD.salt), iterations: PAYLOAD.iterations, hash: "SHA-256" }, base, 512));
+  const aesKey = await crypto.subtle.importKey("raw", bits.slice(0, 32), "AES-CBC", false, ["decrypt"]);
+  const macKey = await crypto.subtle.importKey("raw", bits.slice(32), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const iv = b64(PAYLOAD.iv), ct = b64(PAYLOAD.ct), signed = new Uint8Array(iv.length + ct.length);
+  signed.set(iv); signed.set(ct, iv.length);
+  if (!await crypto.subtle.verify("HMAC", macKey, b64(PAYLOAD.tag), signed)) return null;
+  const plain = await crypto.subtle.decrypt({ name: "AES-CBC", iv }, aesKey, ct);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+function start(data) {
+  document.getElementById("login").remove();
+  document.getElementById("app").hidden = false;
+  main(data);
+}
+
+if (PAYLOAD.plain) {
+  start(PAYLOAD.plain);
+} else {
+  const login = document.getElementById("login");
+  login.hidden = false;
+  document.getElementById("user").focus();
+  document.getElementById("login-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const button = document.getElementById("login-button"), error = document.getElementById("login-error");
+    button.disabled = true; error.textContent = "";
+    try {
+      const data = await unlock(document.getElementById("user").value.trim(), document.getElementById("pass").value);
+      if (data) { start(data); return; }
+      error.textContent = "Incorrect username or password.";
+    } catch (err) {
+      error.textContent = "Could not open the event data in this browser.";
+    }
+    button.disabled = false;
+  });
+}
+</script>
+</body>
+</html>
