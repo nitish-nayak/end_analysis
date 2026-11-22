@@ -14,7 +14,6 @@
 
 #include "TChain.h"
 #include "TFile.h"
-#include "TNamed.h"
 #include "TParameter.h"
 
 #include "Constants.h"
@@ -25,7 +24,6 @@ namespace END {
   struct L1Settings {
     double window_ns;
     int min_m;
-    std::string detx;
   };
 
   // Settings of the first file matching the pattern; exits if none match.
@@ -40,7 +38,6 @@ namespace END {
     L1Settings s;
     s.window_ns = ((TParameter<double>*)f->Get("window_ns"))->GetVal();
     s.min_m = ((TParameter<int>*)f->Get("min_m"))->GetVal();
-    s.detx = f->Get("detx") ? f->Get("detx")->GetTitle() : "";
     f->Close();
     return s;
   }

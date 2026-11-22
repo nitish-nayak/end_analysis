@@ -23,14 +23,13 @@
 
 using namespace END;
 
-void EventDump(std::string muons_file, std::string pattern, std::string json, int n_events = 8,
-               double pre_ns = 100., double post_ns = 250., std::string detx = "")
+void EventDump(std::string muons_file, std::string pattern, std::string detx, std::string json,
+               int n_events = 8, double pre_ns = 100., double post_ns = 250.)
 {
   const L1Settings settings = ReadL1Settings(pattern);
-  if(detx.empty()) detx = settings.detx;
   std::map<int, DetxDom> doms = ReadDetx(detx);
   if(doms.empty()){
-    std::cerr << "Event dump needs a detx! Exiting!" << std::endl;
+    std::cerr << "Couldn't read " << detx << "! Exiting!" << std::endl;
     std::exit(1);
   }
 

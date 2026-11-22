@@ -3,6 +3,7 @@
 // Only hits in the first time_cut_ms of each frame are used (<= 0: whole frame); with
 // hrv_cut the frame also ends at its high-rate veto. Rates are per DOM: counts / summed livetime.
 // A window_ns shorter than the tree's re-counts PMTs within window_ns of each window's first hit.
+// The detx (optional) orders the PMT rows by direction; without it they are in channel order.
 
 #include <algorithm>
 #include <iostream>
@@ -35,7 +36,6 @@ void CoincidenceSpectrum(std::string pattern, std::string out_dir = ".", double 
     std::cerr << "Tree was made with " << settings.window_ns << " ns windows, can't use " << window_ns << "! Exiting!" << std::endl;
     std::exit(1);
   }
-  if(detx.empty()) detx = settings.detx;
   const double time_cut_ns = time_cut_ms * 1e6;
 
   const std::string xtitle = Form("coincidence multiplicity (distinct PMTs within %.0f ns)", window_ns);

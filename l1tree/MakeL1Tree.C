@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "TFile.h"
-#include "TNamed.h"
 #include "TParameter.h"
 #include "TSystem.h"
 #include "TTree.h"
@@ -194,7 +193,6 @@ void MakeL1Tree(std::string input, std::string output, std::string detx = "",
   fout->cd();
   TParameter<double>("window_ns", window_ns).Write();
   TParameter<int>("min_m", min_m).Write();
-  TNamed("detx", detx.c_str()).Write();
   fout->Write();
   fout->Close();
   fin->Close();

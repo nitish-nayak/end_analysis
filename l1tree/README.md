@@ -1,7 +1,7 @@
 # l1tree
 
 ```
-root -l -b -q 'l1tree/MakeL1Tree.C+("run.root", "run_l1.root", "detector.detx")'
+root -l -b -q 'l1tree/MakeL1Tree.C+("run.root", "run_l1.root", "D0ENDV012_expected.detx")'
 ```
 
 Optional arguments after the detx: window length in ns (default 100), minimum multiplicity saved (1 or 2,
@@ -38,7 +38,7 @@ The output has two trees.
 | `t_hrv_cut` | time of the first high-rate veto, `frame_ns` if none |
 | `udp_recv`, `udp_expected` | UDP packets received and expected (-1 without trailer) |
 
-The detx is only used for the PMT t0 that corrects the hit times. PMT index i in the detx is TDC channel i.
+The detx is optional and only used for the PMT t0 that corrects the hit times; it is not stored in the output. PMT index i in the detx is TDC channel i.
 
 The tree can be used directly, for example:
 

@@ -46,14 +46,13 @@ int BestWindow(const std::vector<L1Window>& w, double t, double half_width, int 
   return best;
 }
 
-void MuonTag(std::string pattern, std::string out_dir = ".", int tag_m = 4, double half_width_ns = 40.,
-             double time_cut_ms = 20., std::string detx = "")
+void MuonTag(std::string pattern, std::string detx, std::string out_dir = ".", int tag_m = 4,
+             double half_width_ns = 40., double time_cut_ms = 20.)
 {
-  const L1Settings settings = ReadL1Settings(pattern);
-  if(detx.empty()) detx = settings.detx;
+  ReadL1Settings(pattern); // exits if no files match
   std::map<int, DetxDom> doms = ReadDetx(detx);
   if(doms.empty()){
-    std::cerr << "Muon tagging needs a detx! Exiting!" << std::endl;
+    std::cerr << "Couldn't read " << detx << "! Exiting!" << std::endl;
     std::exit(1);
   }
   const double time_cut_ns = time_cut_ms * 1e6;
