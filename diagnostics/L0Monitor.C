@@ -5,6 +5,7 @@
 //   hit_time_<ch>      hit time within the frame [ms]
 //   tot_<ch>           ToT [ns], all hits
 //   totcut_<ch>        ToT [ns], hits from frames without dropped UDP packets
+// and per DOM the fitted ToT peak of every PMT (Gaussian, peak +- 10 ns): tot_mean, totcut_mean.
 
 #include <algorithm>
 #include <cmath>
@@ -13,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "TF1.h"
 #include "TFile.h"
 #include "TH1D.h"
 #include "TSystem.h"
@@ -28,6 +30,26 @@
 R__LOAD_LIBRARY(libKM3NeTROOT.so)
 
 using namespace END;
+
+const double kFitMarginNs = 10.;   // fit range around the ToT peak
+const double kMinFitEntries = 1000;
+
+// Gaussian fit to the ToT peak (highest bin above 10 ns); false if too few entries.
+bool FitTotPeak(TH1D* h, double& mean, double& error)
+{
+  h->GetXaxis()->SetRangeUser(10, 256);
+  const double peak = h->GetBinCenter(h->GetMaximumBin());
+  h->GetXaxis()->SetRange(0, 0);
+  const double lo = peak - kFitMarginNs, hi = peak + kFitMarginNs;
+  if(h->Integral(h->FindBin(lo), h->FindBin(hi)) < kMinFitEntries) return false;
+
+  TF1 f(Form("fit_%s", h->GetName()), "gaus", lo, hi);
+  f.SetParameters(h->GetMaximum(), peak, 5);
+  if(h->Fit(&f, "QR") != 0) return false;
+  mean = f.GetParameter(1);
+  error = f.GetParError(1);
+  return true;
+}
 
 struct PmtHists {
   TH1D *rate_vs_time, *frames_vs_time, *rate, *hit_time, *tot, *totcut;
@@ -114,11 +136,27 @@ void L0Monitor(std::string input, std::string output, std::string detx = "", Lon
     auto it = doms.find(d.first);
     const std::string name = (it != doms.end()) ? Form("DU%d_DOM%d", it->second.du, it->second.floor) : Form("DOM_%d", d.first);
     fout.mkdir(name.c_str(), Form("DOM %d", d.first))->cd();
+    TH1D tot_mean("tot_mean", Form("%s;PMT channel;fitted ToT peak [ns]", name.c_str()), kNPMT, -0.5, kNPMT - 0.5);
+    TH1D totcut_mean("totcut_mean", Form("%s (frames without dropped packets);PMT channel;fitted ToT peak [ns]", name.c_str()),
+                     kNPMT, -0.5, kNPMT - 0.5);
     for(int ch = 0; ch < kNPMT; ch++){
       PmtHists& h = d.second[ch];
       h.rate_vs_time->Divide(h.frames_vs_time); // mean rate per time bin
+
+      double mean, error;
+      if(FitTotPeak(h.tot, mean, error)){
+        tot_mean.SetBinContent(ch + 1, mean);
+        tot_mean.SetBinError(ch + 1, error);
+      }
+      if(FitTotPeak(h.totcut, mean, error)){
+        totcut_mean.SetBinContent(ch + 1, mean);
+        totcut_mean.SetBinError(ch + 1, error);
+      }
+
       for(TH1D* x : {h.rate_vs_time, h.rate, h.hit_time, h.tot, h.totcut}) x->Write();
     }
+    tot_mean.Write();
+    totcut_mean.Write();
   }
   fout.Close();
   fin->Close();
