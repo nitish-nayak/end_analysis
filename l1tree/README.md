@@ -38,7 +38,7 @@ The output has two trees.
 | `t_hrv_cut` | time of the first high-rate veto, `frame_ns` if none |
 | `udp_recv`, `udp_expected` | UDP packets received and expected (-1 without trailer) |
 
-Hit times are corrected with the PMT t0 from the detx. PMT index i in the detx is TDC channel i.
+The detx is only used for the PMT t0 that corrects the hit times. PMT index i in the detx is TDC channel i.
 
 The tree can be used directly, for example:
 

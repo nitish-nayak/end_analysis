@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <iostream>
 #include <map>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -74,10 +75,22 @@ void EventDump(std::string muons_file, std::string pattern, std::string json, in
   choose(0, n_events / 2);
   choose(ranked.size() / 2, n_events - n_events / 2);
 
-  // geometry
+  // geometry: every DOM of the DUs that are in the data
+  TChain frames("frames");
+  frames.Add(pattern.c_str());
+  int f_dom_id;
+  frames.SetBranchStatus("*", 0);
+  frames.SetBranchStatus("dom_id", 1);
+  frames.SetBranchAddress("dom_id", &f_dom_id);
+  std::set<int> dus;
+  for(Long64_t i = 0; i < frames.GetEntries(); i++){
+    frames.GetEntry(i);
+    dus.insert(DomDU(f_dom_id));
+  }
   std::vector<int> dom_ids;
   std::map<int, int> dom_index;
   for(auto& d : doms){
+    if(!dus.count(DomDU(d.first))) continue;
     dom_index[d.first] = dom_ids.size();
     dom_ids.push_back(d.first);
   }

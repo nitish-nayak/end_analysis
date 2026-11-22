@@ -1,7 +1,8 @@
 # analysis
 
 All analysis macros take a file pattern (wildcards allowed) and an output directory. The detx stored in
-the L1 file is used unless another is given.
+the L1 file is used unless another is given; use the expected detx (e.g. `D0ENDV012_expected.detx`).
+DU and DOM numbers always come from `include/DomMap.h`, positions from the detx.
 
 Coincidence spectrum and PMT vs multiplicity:
 
@@ -20,10 +21,12 @@ Muon tagging:
 root -l -b -q 'analysis/MuonTag.C+("l1/*.root", "plots")'
 ```
 
-A muon is tagged on a DU when the top and bottom DOMs both have a window with m >= 4 and the bottom one
-starts within 40 ns of dz/c after the top one. Optional: tag multiplicity, half width in ns, time cut in
-ms (default 20), detx. Writes `muons.root` (tree `muons`, with the best window on every floor), the
-bottom-top time difference and the multiplicity of the middle DOM(s).
+DOMs with the same x, y in the detx form a column. A muon is tagged on a column when its top and bottom
+DOMs both have a window with m >= 4 and the bottom one starts within 40 ns of dz/c after the top one.
+Optional: tag multiplicity, half width in ns, time cut in ms (default 20), detx. Writes `muons.root`
+(tree `muons`: `du`, and per DOM of the column, lowest first, `dom_id`, `dom`, the best window's `m`,
+its time `dt` relative to a vertical muon, and its `entry` in the L1 chain), the bottom-top time
+difference and the multiplicity of the middle DOM(s).
 
 Event dump for the display (see `display/`):
 
@@ -31,5 +34,6 @@ Event dump for the display (see `display/`):
 root -l -b -q 'analysis/EventDump.C+("plots/muons.root", "l1/*.root", "events.json")'
 ```
 
-Writes the brightest and some typical tagged muons with their hits and the detector geometry.
+Writes the brightest and some typical tagged muons with their hits, and the geometry of all DOMs of the
+DUs in the data.
 Use the same L1 files as for `MuonTag.C`.
