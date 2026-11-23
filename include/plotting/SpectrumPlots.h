@@ -52,10 +52,10 @@ namespace END {
   }
 
   // PMT (rows, most upward-facing at the top) vs multiplicity, with a line at horizon_y between
-  // the upper and lower hemisphere. With probability = true each column is divided by the number
-  // of windows of that multiplicity: the chance a PMT fired.
-  inline void DrawPmtVsMultiplicity(const TH2D& counts, const TH1D& windows, double horizon_y,
-                                    const std::string& title, const std::string& png, bool probability = true)
+  // the upper and lower hemisphere. With normalise = true each column sums to 1: the fraction of
+  // that multiplicity's PMT hits on each PMT.
+  inline void DrawPmtVsMultiplicity(const TH2D& counts, double horizon_y, const std::string& title,
+                                    const std::string& png, bool normalise = true)
   {
     gStyle->SetOptStat(0);
     gStyle->SetPalette(kViridis);
@@ -65,13 +65,13 @@ namespace END {
 
     TH2D h(counts);
     h.SetTitle(title.c_str());
-    if(probability){
+    if(normalise){
       for(int bx = 1; bx <= h.GetNbinsX(); bx++){
-        const double n = windows.GetBinContent(bx);
+        const double n = h.Integral(bx, bx, 1, h.GetNbinsY());
         for(int by = 1; by <= h.GetNbinsY(); by++)
           h.SetBinContent(bx, by, n > 0 ? h.GetBinContent(bx, by) / n : 0.);
       }
-      h.GetZaxis()->SetTitle("probability PMT fired");
+      h.GetZaxis()->SetTitle("fraction of PMT hits in column");
     }
     else
       c.SetLogz();

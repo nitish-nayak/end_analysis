@@ -140,7 +140,7 @@ void CoincidenceSpectrum(std::string pattern, std::string detx, std::string out_
                           + std::string(hrv_cut ? ", before high-rate veto" : "");
   const std::string title = Form("%.0f ns windows, %s", window_ns, cut.c_str());
   DrawMultiplicity(rate, title, out_dir + "/multiplicity.png", sum_from);
-  DrawPmtVsMultiplicity(pmt, windows, n_down + 0.5, title, out_dir + "/pmt_vs_multiplicity.png");
+  DrawPmtVsMultiplicity(pmt, n_down + 0.5, title, out_dir + "/pmt_vs_multiplicity.png");
 
   TFile fout((out_dir + "/coincidence_spectrum.root").c_str(), "RECREATE");
   windows.Write();
