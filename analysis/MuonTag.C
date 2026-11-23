@@ -3,8 +3,9 @@
 // dz/c +- half_width_ns after the top one. For each tag, the best window (largest m) on every
 // DOM of the column near the expected time is stored in tree "muons".
 // The middle DOMs take no part in the selection, so their multiplicity is an unbiased muon sample.
-// A column is live in a timeslice only if all its DOMs have a frame, up to the earliest high-rate veto
-// (and time cut) among them; rates are tags / livetime summed over columns.
+// A column is live in a timeslice only if all its DOMs have a complete frame (no lost UDP packets,
+// trailer present), up to the earliest high-rate veto (and time cut) among them; rates are
+// tags / livetime summed over columns.
 
 #include <algorithm>
 #include <iostream>
@@ -75,19 +76,23 @@ void MuonTag(std::string pattern, std::string detx, std::string out_dir = ".", i
   // usable time of each DOM frame: up to the time cut and the first high-rate veto
   TChain frames("frames");
   frames.Add(pattern.c_str());
-  int f_run, f_frame, f_dom_id;
+  int f_run, f_frame, f_dom_id, udp_recv, udp_expected;
   double frame_ns, t_hrv_cut;
   frames.SetBranchAddress("run", &f_run);
   frames.SetBranchAddress("frame", &f_frame);
   frames.SetBranchAddress("dom_id", &f_dom_id);
   frames.SetBranchAddress("frame_ns", &frame_ns);
   frames.SetBranchAddress("t_hrv_cut", &t_hrv_cut);
+  frames.SetBranchAddress("udp_recv", &udp_recv);
+  frames.SetBranchAddress("udp_expected", &udp_expected);
   std::map<FrameKey, double> dom_limit;
   std::set<std::pair<int, int>> timeslices;
   for(Long64_t i = 0; i < frames.GetEntries(); i++){
     frames.GetEntry(i);
-    dom_limit[FrameKey(f_run, f_frame, f_dom_id)] = std::min(t_hrv_cut, time_cut_ns > 0 ? std::min(time_cut_ns, frame_ns) : frame_ns);
     timeslices.insert(std::make_pair(f_run, f_frame));
+    // lost UDP packets take hits from anywhere in the frame; without a trailer completeness is unknown
+    if(udp_expected < 0 || udp_recv < udp_expected) continue;
+    dom_limit[FrameKey(f_run, f_frame, f_dom_id)] = std::min(t_hrv_cut, time_cut_ns > 0 ? std::min(time_cut_ns, frame_ns) : frame_ns);
   }
 
   // a column is live only while all its DOMs are (a tag needs top and bottom, the probe the middle); -1 if a frame is missing

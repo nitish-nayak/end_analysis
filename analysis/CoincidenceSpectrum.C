@@ -1,7 +1,8 @@
 // Coincidence multiplicity spectrum and PMT-vs-multiplicity map from L1 trees.
 //
 // With time_cut_ms > 0 only hits in the first time_cut_ms of each frame are used; with
-// hrv_cut the frame also ends at its high-rate veto. Rates are per DOM: counts / summed livetime.
+// hrv_cut the frame also ends at its high-rate veto. Frames with lost UDP packets or no trailer are skipped.
+// Rates are per DOM: counts / summed livetime.
 // A window_ns shorter than the tree's re-counts PMTs within window_ns of each window's first hit.
 // The detx gives the PMT directions, used to order the PMT rows from upward to downward facing.
 
@@ -61,21 +62,29 @@ void CoincidenceSpectrum(std::string pattern, std::string detx, std::string out_
   // frames: usable time of each frame, livetime, and m = 1 windows in the usable time
   TChain frames("frames");
   frames.Add(pattern.c_str());
-  int run, frame, dom_id, n_single[kNSlices];
+  int run, frame, dom_id, n_single[kNSlices], udp_recv, udp_expected;
   double frame_ns, t_hrv_cut;
   frames.SetBranchStatus("*", 0);
-  for(const char* b : {"run", "frame", "dom_id", "n_single", "frame_ns", "t_hrv_cut"}) frames.SetBranchStatus(b, 1);
+  for(const char* b : {"run", "frame", "dom_id", "n_single", "frame_ns", "t_hrv_cut", "udp_recv", "udp_expected"}) frames.SetBranchStatus(b, 1);
   frames.SetBranchAddress("run", &run);
   frames.SetBranchAddress("frame", &frame);
   frames.SetBranchAddress("dom_id", &dom_id);
   frames.SetBranchAddress("n_single", n_single);
   frames.SetBranchAddress("frame_ns", &frame_ns);
   frames.SetBranchAddress("t_hrv_cut", &t_hrv_cut);
+  frames.SetBranchAddress("udp_recv", &udp_recv);
+  frames.SetBranchAddress("udp_expected", &udp_expected);
 
   std::map<FrameKey, double> limits;
   double livetime_s = 0;
+  Long64_t n_incomplete = 0;
   for(Long64_t i = 0; i < frames.GetEntries(); i++){
     frames.GetEntry(i);
+    // lost UDP packets take hits from anywhere in the frame; without a trailer completeness is unknown
+    if(udp_expected < 0 || udp_recv < udp_expected){
+      n_incomplete++;
+      continue;
+    }
     double limit = (time_cut_ns > 0) ? std::min(time_cut_ns, frame_ns) : frame_ns;
     if(hrv_cut) limit = std::min(limit, t_hrv_cut);
     limits[FrameKey(run, frame, dom_id)] = limit;
@@ -86,7 +95,7 @@ void CoincidenceSpectrum(std::string pattern, std::string detx, std::string out_
     for(int k = 0; k < kNSlices; k++)
       windows.Fill(1, n_single[k] * std::max(0., std::min(1., (limit - k * width) / width)));
   }
-  std::cout << "Frames : " << limits.size() << ", livetime summed over DOMs : " << livetime_s << " s" << std::endl;
+  std::cout << "Frames : " << limits.size() << " (" << n_incomplete << " incomplete skipped), livetime summed over DOMs : " << livetime_s << " s" << std::endl;
 
   // L1 windows inside the usable time
   TChain l1("l1");
@@ -115,7 +124,8 @@ void CoincidenceSpectrum(std::string pattern, std::string detx, std::string out_
   for(Long64_t i = 0; i < n; i++){
     l1.GetEntry(i);
     if(i % 10000000 == 0) std::cout << "L1 window " << i << " / " << n << std::endl;
-    if(t0 >= limits[FrameKey(run, frame, dom_id)]) continue;
+    auto limit = limits.find(FrameKey(run, frame, dom_id));
+    if(limit == limits.end() || t0 >= limit->second) continue;
 
     unsigned int mask = pmt_mask;
     if(recount){

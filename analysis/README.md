@@ -16,6 +16,7 @@ Optional: window in ns (default 100, at most the tree's window; shorter windows 
 time cut in ms (default 0: whole timeslice; e.g. 20 for the first 20 ms only), use the
 high-rate veto time as well (default false), multiplicity threshold for the summed rate (default 6).
 Rates are per DOM: counts divided by the livetime summed over DOMs.
+Frames with lost UDP packets or without a trailer are skipped (also in `MuonTag.C`).
 
 Muon tagging:
 
@@ -25,7 +26,7 @@ root -l -b -q 'analysis/MuonTag.C+("l1/*.root", "D0ENDV012_expected.detx", "plot
 
 DOMs with the same x, y in the detx form a column. A muon is tagged on a column when its top and bottom
 DOMs both have a window with m >= 4 and the bottom one starts within 40 ns of dz/c after the top one.
-A column is live in a timeslice only when all its DOMs have a frame, up to the earliest high-rate veto among
+A column is live in a timeslice only when all its DOMs have a complete frame, up to the earliest high-rate veto among
 them; rates are per column: tags divided by the livetime summed over columns (`livetime_s`, `n_columns`).
 Optional: tag multiplicity, half width in ns, time cut in ms (default 0: whole timeslice). Writes `muons.root`
 (tree `muons`: `du`, and per DOM of the column, lowest first, `dom_id`, `dom`, the best window's `m`,
