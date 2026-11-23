@@ -25,6 +25,8 @@ root -l -b -q 'analysis/MuonTag.C+("l1/*.root", "D0ENDV012_expected.detx", "plot
 
 DOMs with the same x, y in the detx form a column. A muon is tagged on a column when its top and bottom
 DOMs both have a window with m >= 4 and the bottom one starts within 40 ns of dz/c after the top one.
+A column is live in a timeslice only when all its DOMs have a frame, up to the earliest high-rate veto among
+them; rates are per column: tags divided by the livetime summed over columns (`livetime_s`, `n_columns`).
 Optional: tag multiplicity, half width in ns, time cut in ms (default 0: whole timeslice). Writes `muons.root`
 (tree `muons`: `du`, and per DOM of the column, lowest first, `dom_id`, `dom`, the best window's `m`,
 its time `dt` relative to a vertical muon, and its `entry` in the L1 chain), the bottom-top time

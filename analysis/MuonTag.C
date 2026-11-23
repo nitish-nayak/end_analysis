@@ -3,11 +3,15 @@
 // dz/c +- half_width_ns after the top one. For each tag, the best window (largest m) on every
 // DOM of the column near the expected time is stored in tree "muons".
 // The middle DOMs take no part in the selection, so their multiplicity is an unbiased muon sample.
+// A column is live in a timeslice only if all its DOMs have a frame, up to the earliest high-rate veto
+// (and time cut) among them; rates are tags / livetime summed over columns.
 
 #include <algorithm>
 #include <iostream>
 #include <map>
+#include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -32,6 +36,8 @@ struct L1Window {
   int m;
   Long64_t entry;
 };
+
+typedef std::tuple<int, int, int> FrameKey; // run, frame, dom_id
 
 const int kMaxColumn = 64; // max DOMs in a column
 
@@ -65,22 +71,41 @@ void MuonTag(std::string pattern, std::string detx, std::string out_dir = ".", i
     std::sort(c.second.begin(), c.second.end(), [&doms](int a, int b){ return doms[a].z < doms[b].z; });
     if(c.second.size() >= 2) columns.push_back(c.second);
   }
-  std::map<int, int> top_of; // top DOM id -> column
-  for(size_t c = 0; c < columns.size(); c++) top_of[columns[c].back()] = c;
 
-  // livetime of each column's top DOM
+  // usable time of each DOM frame: up to the time cut and the first high-rate veto
   TChain frames("frames");
   frames.Add(pattern.c_str());
-  int f_dom_id;
-  double frame_ns;
+  int f_run, f_frame, f_dom_id;
+  double frame_ns, t_hrv_cut;
+  frames.SetBranchAddress("run", &f_run);
+  frames.SetBranchAddress("frame", &f_frame);
   frames.SetBranchAddress("dom_id", &f_dom_id);
   frames.SetBranchAddress("frame_ns", &frame_ns);
-  std::map<int, double> livetime_s;
+  frames.SetBranchAddress("t_hrv_cut", &t_hrv_cut);
+  std::map<FrameKey, double> dom_limit;
+  std::set<std::pair<int, int>> timeslices;
   for(Long64_t i = 0; i < frames.GetEntries(); i++){
     frames.GetEntry(i);
-    if(!top_of.count(f_dom_id)) continue;
-    livetime_s[top_of[f_dom_id]] += 1e-9 * (time_cut_ns > 0 ? std::min(time_cut_ns, frame_ns) : frame_ns);
+    dom_limit[FrameKey(f_run, f_frame, f_dom_id)] = std::min(t_hrv_cut, time_cut_ns > 0 ? std::min(time_cut_ns, frame_ns) : frame_ns);
+    timeslices.insert(std::make_pair(f_run, f_frame));
   }
+
+  // a column is live only while all its DOMs are (a tag needs top and bottom, the probe the middle); -1 if a frame is missing
+  auto columnLimit = [&dom_limit](const std::vector<int>& column, int this_run, int this_frame){
+    double limit = 1e30;
+    for(int id : column){
+      auto it = dom_limit.find(FrameKey(this_run, this_frame, id));
+      if(it == dom_limit.end()) return -1.;
+      limit = std::min(limit, it->second);
+    }
+    return limit;
+  };
+  std::map<int, double> livetime_s; // column -> s
+  for(const std::pair<int, int>& ts : timeslices)
+    for(size_t c = 0; c < columns.size(); c++){
+      const double limit = columnLimit(columns[c], ts.first, ts.second);
+      if(limit > 0) livetime_s[c] += 1e-9 * limit;
+    }
 
   // input
   TChain l1("l1");
@@ -128,12 +153,14 @@ void MuonTag(std::string pattern, std::string detx, std::string out_dir = ".", i
   std::map<int, std::vector<L1Window>> windows; // dom_id -> windows in time order
   auto processFrame = [&](int this_run, int this_frame, unsigned int this_utc_s){
     for(const std::vector<int>& column : columns){
+      const double limit = columnLimit(column, this_run, this_frame);
+      if(limit < 0) continue;
       const double z_top = doms[column.back()].z;
       const std::vector<L1Window>& top = windows[column.back()];
       const std::vector<L1Window>& bottom = windows[column.front()];
 
       for(const L1Window& w : top){
-        if(w.m < tag_m || (time_cut_ns > 0 && w.t0 >= time_cut_ns)) continue;
+        if(w.m < tag_m || w.t0 >= limit) continue;
         for(const L1Window& b : bottom)
           if(b.m >= tag_m && std::abs(b.t0 - w.t0) < 500) h_dt.Fill(b.t0 - w.t0);
         if(BestWindow(bottom, w.t0 + (z_top - doms[column.front()].z) / kLightSpeed, half_width_ns, tag_m) < 0) continue;
@@ -180,7 +207,8 @@ void MuonTag(std::string pattern, std::string detx, std::string out_dir = ".", i
 
   h_dt.Write();
   h_probe.Write();
-  TParameter<double>("livetime_per_column_s", total_livetime / livetime_s.size()).Write();
+  TParameter<double>("livetime_s", total_livetime).Write();
+  TParameter<int>("n_columns", livetime_s.size()).Write();
   TParameter<int>("tag_m", tag_m).Write();
   TParameter<double>("half_width_ns", half_width_ns).Write();
   TNamed("l1_pattern", pattern.c_str()).Write();
