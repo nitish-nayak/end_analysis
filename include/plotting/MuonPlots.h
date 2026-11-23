@@ -20,8 +20,9 @@ namespace END {
     TH1D h(dt);
     h.SetLineWidth(2);
     h.SetLineColor(kAzure + 2);
-    h.SetMinimum(0);
+    h.SetMinimum(0.5);
     h.Draw("HIST");
+    c.SetLogy();
     c.Update();
 
     for(double x : {expected_ns - half_width_ns, expected_ns + half_width_ns}){

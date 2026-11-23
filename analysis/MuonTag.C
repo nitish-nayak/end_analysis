@@ -119,7 +119,7 @@ void MuonTag(std::string pattern, std::string detx, std::string out_dir = ".", i
 
   const double dz = doms[columns[0].back()].z - doms[columns[0].front()].z;
   const double expected_tb = dz / kLightSpeed;
-  TH1D h_dt("dt_top_bottom", Form(";t_{bottom} - t_{top} [ns] (both m #geq %d);window pairs / 10 ns", tag_m), 100, -500, 500);
+  TH1D h_dt("dt_top_bottom", Form(";t_{bottom} - t_{top} [ns] (both m #geq %d);window pairs / 10 ns", tag_m), 100, -100, 100);
   TH1D h_probe("probe_multiplicity", ";middle DOM multiplicity (0 = no L1 window);tags", kNPMT + 1, -0.5, kNPMT + 0.5);
   h_dt.SetDirectory(nullptr);
   h_probe.SetDirectory(nullptr);
