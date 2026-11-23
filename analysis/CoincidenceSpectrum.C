@@ -1,9 +1,9 @@
 // Coincidence multiplicity spectrum and PMT-vs-multiplicity map from L1 trees.
 //
-// Only hits in the first time_cut_ms of each frame are used (<= 0: whole frame); with
+// With time_cut_ms > 0 only hits in the first time_cut_ms of each frame are used; with
 // hrv_cut the frame also ends at its high-rate veto. Rates are per DOM: counts / summed livetime.
 // A window_ns shorter than the tree's re-counts PMTs within window_ns of each window's first hit.
-// The detx (optional) orders the PMT rows by direction; without it they are in channel order.
+// The detx gives the PMT directions, used to order the PMT rows from upward to downward facing.
 
 #include <algorithm>
 #include <iostream>
@@ -20,6 +20,7 @@
 #include "TSystem.h"
 
 #include "../include/Constants.h"
+#include "../include/Detx.h"
 #include "../include/L1Tree.h"
 #include "../include/plotting/SpectrumPlots.h"
 
@@ -27,8 +28,8 @@ using namespace END;
 
 typedef std::tuple<int, int, int> FrameKey; // run, frame, dom_id
 
-void CoincidenceSpectrum(std::string pattern, std::string out_dir = ".", double window_ns = 100.,
-                         double time_cut_ms = 20., bool hrv_cut = false, std::string detx = "",
+void CoincidenceSpectrum(std::string pattern, std::string detx, std::string out_dir = ".",
+                         double window_ns = 100., double time_cut_ms = 0., bool hrv_cut = false,
                          int sum_from = 6)
 {
   const L1Settings settings = ReadL1Settings(pattern);
@@ -37,15 +38,25 @@ void CoincidenceSpectrum(std::string pattern, std::string out_dir = ".", double 
     std::exit(1);
   }
   const double time_cut_ns = time_cut_ms * 1e6;
+  std::map<int, DetxDom> doms = ReadDetx(detx);
+  if(doms.empty() || doms.begin()->second.pmts.size() != kNPMT){
+    std::cerr << "Couldn't read " << kNPMT << " PMTs per DOM from " << detx << "! Exiting!" << std::endl;
+    std::exit(1);
+  }
 
   const std::string xtitle = Form("coincidence multiplicity (distinct PMTs within %.0f ns)", window_ns);
   TH1D windows("windows", (";" + xtitle + ";windows").c_str(), kNPMT, 0.5, kNPMT + 0.5);
   TH2D pmt("pmt_vs_multiplicity", (";" + xtitle + ";PMT channel (dz)").c_str(), kNPMT, 0.5, kNPMT + 0.5, kNPMT, 0.5, kNPMT + 0.5);
   windows.SetDirectory(nullptr);
   pmt.SetDirectory(nullptr);
-  const std::vector<std::pair<int, std::string>> rows = PmtRows(detx);
-  for(int ch = 0; ch < kNPMT; ch++)
+  // PMT rows by direction (all DOMs have the same PMT layout); the horizon lies above the downward-facing PMTs
+  const DetxDom& dom = doms.begin()->second;
+  const std::vector<std::pair<int, std::string>> rows = PmtRows(dom);
+  int n_down = 0;
+  for(int ch = 0; ch < kNPMT; ch++){
     pmt.GetYaxis()->SetBinLabel(rows[ch].first, rows[ch].second.c_str());
+    if(dom.pmts[ch].dz < 0) n_down++;
+  }
 
   // frames: usable time of each frame, livetime, and m = 1 windows in the usable time
   TChain frames("frames");
@@ -129,7 +140,7 @@ void CoincidenceSpectrum(std::string pattern, std::string out_dir = ".", double 
                           + std::string(hrv_cut ? ", before high-rate veto" : "");
   const std::string title = Form("%.0f ns windows, %s", window_ns, cut.c_str());
   DrawMultiplicity(rate, title, out_dir + "/multiplicity.png", sum_from);
-  DrawPmtVsMultiplicity(pmt, windows, title, out_dir + "/pmt_vs_multiplicity.png");
+  DrawPmtVsMultiplicity(pmt, windows, n_down + 0.5, title, out_dir + "/pmt_vs_multiplicity.png");
 
   TFile fout((out_dir + "/coincidence_spectrum.root").c_str(), "RECREATE");
   windows.Write();

@@ -51,10 +51,11 @@ namespace END {
     c.Print(png.c_str());
   }
 
-  // PMT (rows, most upward-facing at the top) vs multiplicity. With probability = true each
-  // column is divided by the number of windows of that multiplicity: the chance a PMT fired.
-  inline void DrawPmtVsMultiplicity(const TH2D& counts, const TH1D& windows, const std::string& title,
-                                    const std::string& png, bool probability = true)
+  // PMT (rows, most upward-facing at the top) vs multiplicity, with a line at horizon_y between
+  // the upper and lower hemisphere. With probability = true each column is divided by the number
+  // of windows of that multiplicity: the chance a PMT fired.
+  inline void DrawPmtVsMultiplicity(const TH2D& counts, const TH1D& windows, double horizon_y,
+                                    const std::string& title, const std::string& png, bool probability = true)
   {
     gStyle->SetOptStat(0);
     gStyle->SetPalette(kViridis);
@@ -85,6 +86,12 @@ namespace END {
     h.GetYaxis()->SetTitleOffset(1.9);
     h.GetZaxis()->SetTitleOffset(1.4);
     h.Draw("COLZ");
+
+    TLine horizon(h.GetXaxis()->GetBinLowEdge(first), horizon_y, h.GetXaxis()->GetXmax(), horizon_y);
+    horizon.SetLineColor(kRed);
+    horizon.SetLineStyle(2);
+    horizon.SetLineWidth(2);
+    horizon.Draw();
 
     c.Print(png.c_str());
   }

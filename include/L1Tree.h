@@ -42,24 +42,17 @@ namespace END {
     return s;
   }
 
-  // Row (1 = bottom of plot) of each PMT channel, ordered by PMT direction dz so the most
-  // upward-facing PMT is at the top. Uses the first DOM of the detx; channel order without one.
-  inline std::vector<std::pair<int, std::string>> PmtRows(const std::string& detx)
+  // Row (1 = bottom of plot) and label of each PMT channel, ordered by PMT direction dz
+  // so the most upward-facing PMT is at the top.
+  inline std::vector<std::pair<int, std::string>> PmtRows(const DetxDom& dom)
   {
     std::vector<std::pair<double, int>> by_dz;
-    std::map<int, DetxDom> doms = detx.empty() ? std::map<int, DetxDom>() : ReadDetx(detx);
-    for(int ch = 0; ch < kNPMT; ch++){
-      const bool known = !doms.empty() && ch < (int)doms.begin()->second.pmts.size();
-      by_dz.push_back(std::make_pair(known ? doms.begin()->second.pmts[ch].dz : ch, ch));
-    }
+    for(int ch = 0; ch < (int)dom.pmts.size(); ch++) by_dz.push_back(std::make_pair(dom.pmts[ch].dz, ch));
     std::sort(by_dz.begin(), by_dz.end());
 
-    std::vector<std::pair<int, std::string>> rows(kNPMT); // channel -> (row, label)
-    for(int i = 0; i < kNPMT; i++){
-      const int ch = by_dz[i].second;
-      rows[ch].first = i + 1;
-      rows[ch].second = doms.empty() ? Form("%d", ch) : Form("%2d (%+.2f)", ch, by_dz[i].first);
-    }
+    std::vector<std::pair<int, std::string>> rows(by_dz.size()); // channel -> (row, label)
+    for(size_t i = 0; i < by_dz.size(); i++)
+      rows[by_dz[i].second] = std::make_pair((int)i + 1, std::string(Form("%2d (%+.2f)", by_dz[i].second, by_dz[i].first)));
     return rows;
   }
 
