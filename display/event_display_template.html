@@ -17,14 +17,17 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
-  .app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; }
-  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; height: 100vh; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; flex: 1 1 260px; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header select { max-width: 100%; }
+  #event { flex: 0 1 auto; min-width: 0; text-overflow: ellipsis; }
+  .app > * { min-width: 0; }
   .win { margin-left: auto; color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; }
   #view { position: relative; min-height: 0; overflow: hidden; }
   #view canvas { display: block; }
-  .bar { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 10px; align-items: center;
-    background: rgba(17, 24, 39, .8); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; backdrop-filter: blur(6px); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; background: var(--panel); border-top: 1px solid var(--line); padding: 7px 12px; }
   button, select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 7px;
     padding: 5px 10px; font: inherit; cursor: pointer; }
   button:hover, select:hover { border-color: var(--accent); }
@@ -35,7 +38,11 @@
   .legend-title { font-size: 11px; color: var(--muted); }
   .legend { height: 8px; border-radius: 4px; }
   .legend-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  #timeline { display: block; width: 100%; height: 120px; background: var(--panel); border-top: 1px solid var(--line); cursor: crosshair; }
+  #timeline { display: block; width: 100%; height: var(--timeline-h, clamp(80px, 24vh, 200px)); background: var(--panel); cursor: crosshair; }
+  #timeline[hidden] { display: none; }
+  #splitter { height: 7px; background: var(--panel-2); border-top: 1px solid var(--line); cursor: row-resize; touch-action: none; }
+  #splitter:hover { background: var(--line); }
+  .hint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--muted); pointer-events: none; }
   .app[hidden] { display: none; }
   .login { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; }
   .login form { width: min(340px, 100%); display: grid; gap: 12px; background: var(--panel); border: 1px solid var(--line);
@@ -47,7 +54,7 @@
   .login input:focus { outline: none; border-color: var(--accent); }
   .login button { padding: 8px 10px; }
   .login .error { color: #f87171; font-size: 13px; min-height: 1.2em; margin: 0; }
-  @media (max-width: 600px) { .legend-box { display: none; } #speed { display: none; } header { flex-wrap: wrap; } .win { margin-left: 0; } }
+  @media (max-width: 600px) { .legend-box { display: none; } #speed { display: none; } header { flex-wrap: wrap; } .win { margin-left: 0; } .hint { display: none; } }
 </style>
 </head>
 <body>
@@ -74,7 +81,7 @@
     </label>
   </header>
 
-  <div id="view">
+  <div id="view"><span class="hint">Drag: rotate · Scroll: zoom · Right-drag: pan</span></div>
     <div class="bar">
       <button class="primary" id="play">Pause</button>
       <button id="restart" aria-label="Restart">↺</button>
@@ -94,9 +101,10 @@
         <div class="legend" id="legend"></div>
         <div class="legend-scale" id="legend-scale"></div>
       </div>
+      <button id="fit" title="Frame the hit DOMs in the current view">Fit</button>
+      <button id="toggle-timeline" title="Show or hide the hit timeline">Timeline</button>
     </div>
-  </div>
-
+  <div id="splitter" title="Drag to resize the timeline"></div>
   <canvas id="timeline"></canvas>
 </div>
 
@@ -112,10 +120,20 @@ const PMT_RADIUS = 0.040;          // m, ~3-inch photocathode
 const DOM_SCALE = 3;               // DOMs drawn larger than life so the PMTs are visible
 const FLASH_NS = 6;                // decay of a flash, in event time
 const AFTERGLOW = 0.22;
-const T_COLOUR = [-10, 40];        // colour scale for hit time (ns)
+const T_COLOUR = DATA.t_colour || [-10, 40];  // colour scale for hit time (ns)
 const TOT_COLOUR = [10, 120];      // colour scale for time over threshold (ns)
-let RANGE = [-20, 30];            // playback range (ns), set by the window drop-down
+let RANGE = DATA.windows ? DATA.windows[0].slice(0, 2) : [-20, 30];  // playback range (ns), set by the window drop-down
 const STOPS = ["#38bdf8", "#34d399", "#a3e635", "#facc15", "#fb923c", "#f43f5e"];
+
+// optional page settings in the data: title, time windows [[lo, hi, label], ...] and their caption
+if (DATA.title) { document.title = DATA.title; document.querySelector("header h1").textContent = DATA.title; }
+if (DATA.windows) {
+  const sel = document.getElementById("window"), label = sel.parentElement;
+  sel.innerHTML = "";
+  DATA.windows.forEach(([lo, hi, text], i) => sel.add(new Option(text, `${lo},${hi}`, i === 0, i === 0)));
+  if (DATA.window_caption) label.firstChild.textContent = DATA.window_caption;
+  if (DATA.window_note) label.title = DATA.window_note;
+}
 
 // ---------------------------------------------------------------- helpers
 const hexToRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
@@ -155,8 +173,8 @@ renderer.setClearColor(0x0a0e16);
 view.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0a0e16, 20, 48);
-const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 200);
+scene.fog = new THREE.Fog(0x0a0e16, 20, 48);  // follows the camera distance in frame()
+const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 400);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
@@ -164,7 +182,47 @@ scene.add(new THREE.AmbientLight(0x8899bb, 0.55));
 const sun = new THREE.DirectionalLight(0xffffff, 0.7);
 sun.position.set(6, 12, 8);
 scene.add(sun);
-scene.add(new THREE.GridHelper(24, 24, 0x2a3757, 0x172036));
+const extent = Math.max(...doms.map(d => Math.hypot(d.pos[0] - centre[0], d.pos[1] - centre[1]))) + 6;
+const gridSize = 2 * Math.ceil(extent);
+scene.add(new THREE.GridHelper(gridSize, gridSize, 0x2a3757, 0x172036));
+const detTop = Math.max(...doms.map(d => d.pos[2]));
+
+function textSprite(text, colour, height) {
+  const c = document.createElement("canvas"), g = c.getContext("2d");
+  g.font = "600 48px system-ui, sans-serif";
+  c.width = Math.ceil(g.measureText(text).width) + 16; c.height = 64;
+  g.font = "600 48px system-ui, sans-serif"; g.fillStyle = colour; g.textBaseline = "middle"; g.fillText(text, 8, 34);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthWrite: false, fog: false }));
+  s.scale.set(height * c.width / c.height, height, 1);
+  return s;
+}
+
+// optional beam direction (detector frame, direction of travel): an arrow through the detector's upstream side
+const BEAM_COLOUR = 0xf59e0b;
+const beamDir = DATA.beam ? toV(...DATA.beam).normalize() : null;
+if (beamDir) {
+  // from 4 m before the most upstream DOM to 4 m past the most downstream one
+  const along = doms.map(d => domCentre(d).dot(beamDir));
+  const mid = new THREE.Vector3(0, detTop / 2, 0);
+  const start = mid.clone().addScaledVector(beamDir, Math.min(...along) - 4 - mid.dot(beamDir));
+  const length = Math.max(...along) - Math.min(...along) + 8;
+  const arrow = new THREE.ArrowHelper(beamDir, start, length, BEAM_COLOUR, 2.4, 1.0);
+  arrow.line.material.transparent = true; arrow.line.material.opacity = 0.55;
+  scene.add(arrow);
+  const label = textSprite(DATA.beam_label || "beam", "#f59e0b", 1.4);
+  label.position.copy(start).addScaledVector(beamDir, -label.scale.x / 2 - 0.5);
+  scene.add(label);
+}
+
+// orientation inset: beam and up, turning with the camera
+const inset = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(30, 1, 0.1, 30), size: 130 };
+inset.scene.add(new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 0), 0.8, 0xe7ebf3, 0.25, 0.14));
+{ const l = textSprite("up", "#e7ebf3", 0.26); l.position.set(0, 1.0, 0); inset.scene.add(l); }
+if (beamDir) {
+  inset.scene.add(new THREE.ArrowHelper(beamDir, new THREE.Vector3(0, 0, 0), 0.8, BEAM_COLOUR, 0.25, 0.14));
+  const l = textSprite("beam", "#f59e0b", 0.26); l.position.copy(beamDir).multiplyScalar(1.05).add(new THREE.Vector3(0, -0.22, 0));
+  inset.scene.add(l);
+}
 
 for (const c of columns) {
   const ds = colDoms(c);
@@ -228,12 +286,33 @@ function selectEvent(k) {
   for (const a of hitsByPmt.values()) a.sort((x, y) => x[0] - y[0]);
   tagged = new Set(ev.doms);
   domObjs.forEach((o, i) => o.glass.material.color.set(tagged.has(i) ? 0xa8d4ff : 0x9fb4d9));
-  const target = domCentre(doms[ev.doms[1]]);
-  controls.target.copy(target);
-  camera.position.copy(target.clone().add(new THREE.Vector3(10.5, 3.5, 12.5)));
+  camera.position.copy(new THREE.Vector3(10.5, 3.5, 12.5));
+  controls.target.set(0, 0, 0);
+  fitView();
   document.getElementById("event").value = k;
   t = RANGE[0];
   setPlaying(true);
+}
+
+// frame the whole detector from the current viewing direction, so that it fills the view whatever its aspect
+function fitView() {
+  const pts = doms.map(domCentre);
+  const centre = new THREE.Box3().setFromPoints(pts).getCenter(new THREE.Vector3());
+  const back = camera.position.clone().sub(controls.target).normalize();
+  camera.position.copy(centre).add(back); camera.lookAt(centre);
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2), tanH = tanV * camera.aspect;
+  const pad = DOM_RADIUS * DOM_SCALE + 0.5;
+  // smallest distance along `back` at which every DOM (with its drawn radius) is inside the frustum
+  let dist = 0;
+  for (const p of pts) {
+    const v = p.clone().sub(centre);
+    const depth = v.dot(back);
+    dist = Math.max(dist, depth + (Math.abs(v.dot(right)) + pad) / tanH, depth + (Math.abs(v.dot(up)) + pad) / tanV);
+  }
+  controls.target.copy(centre);
+  camera.position.copy(centre).addScaledVector(back, 1.12 * dist);
 }
 
 const BASE = [0.17, 0.21, 0.31];
@@ -281,10 +360,19 @@ function drawTimeline() {
     const y = TL_TOP + r * rh;
     if (ev && tagged.has(d)) { tlx.fillStyle = "rgba(124,196,255,.12)"; tlx.fillRect(TL_LEFT, y, w - TL_LEFT - TL_RIGHT, rh); }
     const firstOfColumn = r === 0 || colOf(doms[d]) !== colOf(doms[rowOrder[r - 1]]);
+    const firstOfDu = r === 0 || doms[d].du !== doms[rowOrder[r - 1]].du;
+    const n = colDoms(colOf(doms[d])).length, perColumn = rh * n >= 11;
     if (firstOfColumn) {
-      if (r > 0) { tlx.strokeStyle = "#243049"; tlx.beginPath(); tlx.moveTo(TL_LEFT, y); tlx.lineTo(w - TL_RIGHT, y); tlx.stroke(); }
-      tlx.fillStyle = ev && colOf(doms[d]) === colOf(doms[ev.doms[0]]) ? "#7cc4ff" : "#8e98ae";
-      tlx.fillText(colLabel(colOf(doms[d])), 4, y + rh * 1.5);
+      tlx.strokeStyle = firstOfDu ? "#3b4a6b" : "#243049";
+      if (r > 0 && (perColumn || firstOfDu)) { tlx.beginPath(); tlx.moveTo(TL_LEFT, y); tlx.lineTo(w - TL_RIGHT, y); tlx.stroke(); }
+      if (perColumn) {
+        tlx.fillStyle = ev && colOf(doms[d]) === colOf(doms[ev.doms[0]]) ? "#7cc4ff" : "#8e98ae";
+        tlx.fillText(colLabel(colOf(doms[d])), 4, y + rh * n / 2);
+      } else if (firstOfDu) {
+        const nDu = doms.filter(x => x.du === doms[d].du).length;
+        tlx.fillStyle = ev && doms[d].du === doms[ev.doms[0]].du ? "#7cc4ff" : "#8e98ae";
+        tlx.fillText(`DU${doms[d].du}`, 4, y + rh * nDu / 2);
+      }
     }
   });
 
@@ -319,7 +407,7 @@ tl.addEventListener("click", e => {
 
 // ---------------------------------------------------------------- controls
 const picker = document.getElementById("event");
-DATA.events.forEach((e, k) => picker.add(new Option(`Event ${k + 1}`, k)));
+DATA.events.forEach((e, k) => picker.add(new Option(e.label || `Event ${k + 1}`, k)));
 picker.addEventListener("change", () => selectEvent(+picker.value));
 document.getElementById("window").addEventListener("change", e => {
   RANGE = e.target.value.split(",").map(Number);
@@ -338,6 +426,20 @@ updateLegend();
 playBtn.addEventListener("click", () => { if (!playing && t >= RANGE[1]) t = RANGE[0]; setPlaying(!playing); });
 document.getElementById("restart").addEventListener("click", () => { t = RANGE[0]; setPlaying(true); });
 document.getElementById("speed").addEventListener("change", e => speed = +e.target.value);
+document.getElementById("fit").addEventListener("click", fitView);
+document.getElementById("toggle-timeline").addEventListener("click", () => {
+  tl.hidden = !tl.hidden; document.getElementById("splitter").hidden = tl.hidden;
+});
+// drag the splitter to give the timeline more or less of the page
+const splitter = document.getElementById("splitter");
+splitter.addEventListener("pointerdown", e => {
+  splitter.setPointerCapture(e.pointerId);
+  const y0 = e.clientY, h0 = tl.clientHeight;
+  const move = m => document.documentElement.style.setProperty("--timeline-h",
+    `${Math.min(window.innerHeight * 0.7, Math.max(60, h0 - (m.clientY - y0)))}px`);
+  splitter.addEventListener("pointermove", move);
+  splitter.addEventListener("pointerup", () => splitter.removeEventListener("pointermove", move), { once: true });
+});
 const slider = document.getElementById("time-slider");
 slider.addEventListener("input", () => { t = RANGE[0] + slider.value / 1000 * (RANGE[1] - RANGE[0]); setPlaying(false); });
 
@@ -362,7 +464,20 @@ function frame(now) {
   updatePmts();
   drawTimeline();
   controls.update();
+  const d = camera.position.distanceTo(controls.target);
+  scene.fog.near = d + extent * 0.5; scene.fog.far = d + extent * 2.5;
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setViewport(0, 0, w, h); renderer.setScissorTest(false);
   renderer.render(scene, camera);
+  // inset in the top-right corner, looking along the main camera's direction
+  const s = inset.size;
+  inset.camera.position.copy(camera.position).sub(controls.target).setLength(6);
+  inset.camera.quaternion.copy(camera.quaternion);
+  renderer.autoClear = false;
+  renderer.setScissorTest(true); renderer.setScissor(w - s - 8, h - s - 8, s, s); renderer.setViewport(w - s - 8, h - s - 8, s, s);
+  renderer.clearDepth();
+  renderer.render(inset.scene, inset.camera);
+  renderer.setScissorTest(false); renderer.autoClear = true;
   requestAnimationFrame(frame);
 }
 
