@@ -59,6 +59,7 @@ docker run --rm -v /path/to/Jpp:/jpp -v $HOME/work:$HOME/work -w $PWD jpp-env \
 - `diagnostics/` L0 monitoring histograms, dropped packets
 - `slim/` counting and thinning out timeslices in L0 files
 - `display/` event display page
+- `wrs/` good White Rabbit sync intervals from the WRS monitoring logs, and keeping only those timeslices
 - `include/` detx reader, DOM id to DU/DOM table, constants, plotting functions
 
 Each folder has a README describing its scripts. Run all commands from the repository directory.
