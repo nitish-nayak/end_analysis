@@ -11,8 +11,9 @@ Every ~56 s the poll script writes `POLL TIMESTAMP` (unix ms, the start of the p
 then reads the switches one after the other over ssh (about 5 s each, longer after a timeout). A poll of a
 switch is good only if its wr_mon screens and its snapshot are all there and all show PLL mode BC, LOCKED,
 PPS On, grand master 1st hop with clock class 6, servo TRACK_PHASE, tracking not disabled, wri1 locked and
-|offsetFromMaster| < 1 ns. A poll counts only if the polls before and after it are good too; the switch is
-synchronised between two consecutive counting polls at most 150 s apart.
+|offsetFromMaster| < 1 ns. A poll counts only if the polls before and after it are good too, and polls more
+than 150 s apart are not neighbours (the time between is unknown); the switch is synchronised between two
+consecutive counting polls.
 The detector is synchronised only where every switch is: one bad or unreachable switch removes all data,
 and so do times without logs.
 

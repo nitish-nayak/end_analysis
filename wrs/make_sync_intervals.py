@@ -158,16 +158,18 @@ def switch_samples(log_dir, n, max_offset):
 
 
 def switch_intervals(samples, max_gap):
-    """Intervals between consecutive polls that are good together with both their neighbours."""
+    """Intervals between consecutive polls that are good together with both their neighbours.
+
+    Polls more than max gap apart are not neighbours: what happened in between is unknown, so a poll next
+    to such a gap does not count either."""
+    linked = [samples[i + 1][1] - samples[i][2] <= max_gap for i in range(len(samples) - 1)]
     ok = [i > 0 and i < len(samples) - 1 and samples[i - 1][0] and samples[i][0] and samples[i + 1][0]
-          for i in range(len(samples))]
+          and linked[i - 1] and linked[i] for i in range(len(samples))]
     out = []
     for i in range(len(samples) - 1):
         if not (ok[i] and ok[i + 1]):
             continue
         a, b = samples[i][1], samples[i + 1][2]
-        if samples[i + 1][1] - samples[i][2] > max_gap:
-            continue
         if out and a <= out[-1][1]:
             out[-1][1] = max(out[-1][1], b)
         else:
